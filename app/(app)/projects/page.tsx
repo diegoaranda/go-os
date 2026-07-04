@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { ArrowRight, ExternalLink, Pencil, Plus, Trash2, X } from "lucide-react"
 import { PageHeader } from "@/components/page-header"
 import {
@@ -22,7 +22,13 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { ProjectStatusBadge, PriorityBadge } from "@/components/status-badge"
-import { priorities, projectStatuses, useAppStore } from "@/lib/store"
+import { priorities, projectStatuses } from "@/lib/store"
+import {
+  createProject,
+  deleteProject,
+  listProjects,
+  updateProject,
+} from "@/lib/supabase/data"
 import { cn } from "@/lib/utils"
 import type { Priority, Project, ProjectStatus } from "@/lib/types"
 
@@ -52,24 +58,33 @@ function ProjectForm({
   onCancel,
 }: {
   initial?: Project
-  onSubmit: (input: Omit<Project, "id" | "links">) => void
+  onSubmit: (input: Omit<Project, "id" | "links">) => void | Promise<void>
   onCancel?: () => void
 }) {
   const [form, setForm] = useState<ProjectFormState>(() => fromProject(initial))
+  const [isSubmitting, setIsSubmitting] = useState(false)
 
-  const submit = () => {
+  const submit = async () => {
     const name = form.name.trim()
     const client = form.client.trim()
     if (!name || !client) return
-    onSubmit({
-      name,
-      client,
-      status: form.status,
-      priority: form.priority,
-      nextAction: form.nextAction.trim() || "Definir próxima acción",
-      progress: Math.min(100, Math.max(0, Number(form.progress) || 0)),
-    })
-    if (!initial) setForm(fromProject())
+    setIsSubmitting(true)
+
+    try {
+      await onSubmit({
+        name,
+        client,
+        status: form.status,
+        priority: form.priority,
+        nextAction: form.nextAction.trim() || "Definir próxima acción",
+        progress: Math.min(100, Math.max(0, Number(form.progress) || 0)),
+      })
+      if (!initial) setForm(fromProject())
+    } catch {
+      return
+    } finally {
+      setIsSubmitting(false)
+    }
   }
 
   return (
@@ -160,9 +175,9 @@ function ProjectForm({
         />
       </div>
       <div className="flex items-end gap-2">
-        <Button onClick={submit} size="sm" className="gap-1">
+        <Button onClick={submit} size="sm" className="gap-1" disabled={isSubmitting}>
           {initial ? <Pencil className="size-4" /> : <Plus className="size-4" />}
-          {initial ? "Guardar" : "Crear"}
+          {isSubmitting ? "Guardando..." : initial ? "Guardar" : "Crear"}
         </Button>
         {onCancel ? (
           <Button onClick={onCancel} variant="ghost" size="sm" className="gap-1">
@@ -176,8 +191,74 @@ function ProjectForm({
 }
 
 export default function ProjectsPage() {
-  const { projects, addProject, updateProject, deleteProject } = useAppStore()
+  const [projects, setProjects] = useState<Project[]>([])
   const [editing, setEditing] = useState<string | null>(null)
+  const [isLoading, setIsLoading] = useState(true)
+  const [error, setError] = useState("")
+
+  useEffect(() => {
+    let cancelled = false
+
+    async function loadProjects() {
+      try {
+        const nextProjects = await listProjects()
+        if (!cancelled) setProjects(nextProjects)
+      } catch (caught) {
+        if (!cancelled) {
+          setError(caught instanceof Error ? caught.message : "No se pudieron cargar los proyectos.")
+        }
+      } finally {
+        if (!cancelled) setIsLoading(false)
+      }
+    }
+
+    loadProjects()
+
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  const createSupabaseProject = async (input: Omit<Project, "id" | "links">) => {
+    setError("")
+    try {
+      const project = await createProject({ ...input, links: [] })
+      setProjects((current) => [...current, project])
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "No se pudo crear el proyecto.")
+      throw caught
+    }
+  }
+
+  const updateSupabaseProject = async (
+    id: string,
+    input: Omit<Project, "id" | "links">,
+  ) => {
+    setError("")
+    try {
+      const project = await updateProject(id, input)
+      setProjects((current) =>
+        current.map((currentProject) =>
+          currentProject.id === id ? project : currentProject,
+        ),
+      )
+      setEditing(null)
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "No se pudo guardar el proyecto.")
+      throw caught
+    }
+  }
+
+  const deleteSupabaseProject = async (id: string) => {
+    setError("")
+    try {
+      await deleteProject(id)
+      setProjects((current) => current.filter((project) => project.id !== id))
+      if (editing === id) setEditing(null)
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "No se pudo eliminar el proyecto.")
+    }
+  }
 
   return (
     <div className="space-y-6">
@@ -191,9 +272,18 @@ export default function ProjectsPage() {
           <CardTitle className="text-base">Crear proyecto</CardTitle>
         </CardHeader>
         <CardContent>
-          <ProjectForm onSubmit={addProject} />
+          <ProjectForm onSubmit={createSupabaseProject} />
+          {error ? <p className="mt-3 text-sm text-destructive">{error}</p> : null}
         </CardContent>
       </Card>
+
+      {isLoading ? (
+        <Card>
+          <CardContent className="py-6 text-sm text-muted-foreground">
+            Cargando proyectos...
+          </CardContent>
+        </Card>
+      ) : null}
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
         {projects.map((project) => (
@@ -216,8 +306,7 @@ export default function ProjectsPage() {
                 <ProjectForm
                   initial={project}
                   onSubmit={(input) => {
-                    updateProject(project.id, input)
-                    setEditing(null)
+                    return updateSupabaseProject(project.id, input)
                   }}
                   onCancel={() => setEditing(null)}
                 />
@@ -266,7 +355,9 @@ export default function ProjectsPage() {
                     <Button
                       size="sm"
                       variant="ghost"
-                      onClick={() => deleteProject(project.id)}
+                      onClick={() => {
+                        void deleteSupabaseProject(project.id)
+                      }}
                       className="h-7 gap-1 px-2 text-xs text-destructive"
                     >
                       <Trash2 className="size-3" />
