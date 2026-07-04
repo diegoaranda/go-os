@@ -1,7 +1,8 @@
 "use client"
 
 import { useState } from "react"
-import { Plus, X, MessageCircle, ListTodo } from "lucide-react"
+import { useRouter } from "next/navigation"
+import { LogOut, Plus, X, MessageCircle, ListTodo } from "lucide-react"
 import { PageHeader } from "@/components/page-header"
 import {
   Card,
@@ -18,6 +19,7 @@ import { Separator } from "@/components/ui/separator"
 import { Badge } from "@/components/ui/badge"
 import { quickLinks } from "@/lib/data"
 import { accessReferences } from "@/lib/mock-data"
+import { getSupabaseClient } from "@/lib/supabase/client"
 
 function SettingSwitch({
   label,
@@ -41,14 +43,24 @@ function SettingSwitch({
 }
 
 export default function SettingsPage() {
+  const router = useRouter()
   const [links, setLinks] = useState(quickLinks.map((l) => l.label))
   const [newLink, setNewLink] = useState("")
+  const [isSigningOut, setIsSigningOut] = useState(false)
 
   const addLink = () => {
     const v = newLink.trim()
     if (!v) return
     setLinks((prev) => [...prev, v])
     setNewLink("")
+  }
+
+  const signOut = async () => {
+    setIsSigningOut(true)
+    const supabase = getSupabaseClient()
+    await supabase.auth.signOut()
+    await fetch("/api/auth/session", { method: "DELETE" })
+    router.replace("/login")
   }
 
   return (
@@ -75,6 +87,16 @@ export default function SettingsPage() {
                 <p className="text-xs text-muted-foreground">Operador</p>
               </div>
             </div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={signOut}
+              disabled={isSigningOut}
+              className="w-fit gap-1"
+            >
+              <LogOut className="size-4" />
+              {isSigningOut ? "Saliendo..." : "Cerrar sesión"}
+            </Button>
             <div className="grid gap-3 sm:grid-cols-2">
               <div className="space-y-1.5">
                 <Label htmlFor="name">Nombre</Label>
