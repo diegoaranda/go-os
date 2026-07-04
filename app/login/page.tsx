@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { Suspense, useEffect, useState } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import { LockKeyhole } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -27,7 +27,7 @@ async function persistSession(accessToken: string) {
   }
 }
 
-export default function LoginPage() {
+function LoginContent() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const next = searchParams.get("next") ?? "/"
@@ -114,5 +114,13 @@ export default function LoginPage() {
         </CardContent>
       </Card>
     </main>
+  )
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense fallback={null}>
+      <LoginContent />
+    </Suspense>
   )
 }
