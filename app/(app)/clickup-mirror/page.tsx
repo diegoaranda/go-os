@@ -1,15 +1,35 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { ExternalLink, RefreshCw, Users } from "lucide-react"
 
-import { PageHeader } from "@/components/page-header"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
+import {
+  getClickUpStatusLabel,
+  getClickUpStatusSortIndex,
+  getPrimaryClickUpStatusKey,
+  primaryClickUpStatuses,
+  normalizeClickUpStatus,
+} from "@/lib/clickup/statuses"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { getSupabaseClient } from "@/lib/supabase/client"
 import { listClickUpMirrorTasks } from "@/lib/supabase/data"
+import { openClickUpTask } from "@/lib/clickup/open-task"
 import type { ClickUpMirrorTask } from "@/lib/types"
+
+const AUTO_SYNC_STALE_MS = 30 * 60 * 1000
+const ASSIGNEE_FILTERS = ["Diego", "Todos", "Jorge", "Sin responsable"] as const
+const ASSIGNEE_FILTER_STORAGE_KEY = "go-os.clickup-mirror.assignee-filter"
+
+type AssigneeFilter = (typeof ASSIGNEE_FILTERS)[number]
 
 type PulledClickUpTask = {
   externalId: string
@@ -37,6 +57,119 @@ type ClickUpMirrorUpsertRow = {
   synced_at: string
 }
 
+function normalizeLabel(value: string) {
+  return normalizeClickUpStatus(value)
+}
+
+function isAssigneeFilter(value: string | null): value is AssigneeFilter {
+  return ASSIGNEE_FILTERS.some((filter) => filter === value)
+}
+
+function isHighPriority(priority: string) {
+  const normalized = normalizeLabel(priority)
+
+  return normalized.includes("urgent") || normalized.includes("high") || normalized.includes("alta")
+}
+
+function priorityRank(priority: string) {
+  return isHighPriority(priority) ? 0 : 1
+}
+
+function dueTimestamp(value: string) {
+  if (!value) return Number.POSITIVE_INFINITY
+
+  const timestamp = new Date(value).getTime()
+  return Number.isFinite(timestamp) ? timestamp : Number.POSITIVE_INFINITY
+}
+
+function isOverdue(task: ClickUpMirrorTask) {
+  if (!task.dueDate) return false
+
+  const due = new Date(task.dueDate).getTime()
+  if (!Number.isFinite(due)) return false
+
+  return due < startOfToday().getTime()
+}
+
+function startOfToday() {
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+
+  return today
+}
+
+function endOfToday() {
+  const today = new Date()
+  today.setHours(23, 59, 59, 999)
+
+  return today
+}
+
+function endOfWeek() {
+  const today = startOfToday()
+  const day = today.getDay()
+  const daysUntilSunday = day === 0 ? 0 : 7 - day
+  const end = new Date(today)
+  end.setDate(today.getDate() + daysUntilSunday)
+  end.setHours(23, 59, 59, 999)
+
+  return end
+}
+
+function isDueToday(task: ClickUpMirrorTask) {
+  if (!task.dueDate) return false
+
+  const due = new Date(task.dueDate).getTime()
+  if (!Number.isFinite(due)) return false
+
+  return due >= startOfToday().getTime() && due <= endOfToday().getTime()
+}
+
+function isDueThisWeek(task: ClickUpMirrorTask) {
+  if (!task.dueDate || isOverdue(task) || isDueToday(task)) return false
+
+  const due = new Date(task.dueDate).getTime()
+  if (!Number.isFinite(due)) return false
+
+  return due <= endOfWeek().getTime()
+}
+
+function isReadyToPublishStatus(status: string) {
+  const normalized = normalizeLabel(status)
+
+  return normalized.includes("publicar") || normalized.includes("publish")
+}
+
+function taskMatchesAssignee(task: ClickUpMirrorTask, filter: AssigneeFilter) {
+  if (filter === "Todos") return true
+  if (filter === "Sin responsable") return task.assignees.length === 0
+
+  return task.assignees.some((assignee) =>
+    normalizeLabel(assignee.name).includes(normalizeLabel(filter)),
+  )
+}
+
+function sortMirrorTasks(tasks: ClickUpMirrorTask[]) {
+  return [...tasks].sort((a, b) => {
+    const byPriority = priorityRank(a.priority) - priorityRank(b.priority)
+    if (byPriority !== 0) return byPriority
+
+    const byDueDate = dueTimestamp(a.dueDate) - dueTimestamp(b.dueDate)
+    if (byDueDate !== 0) return byDueDate
+
+    return a.taskName.localeCompare(b.taskName, "es", { sensitivity: "base" })
+  })
+}
+
+function shouldAutoSync(lastSyncedAt: string) {
+  if (!lastSyncedAt) return true
+
+  const timestamp = new Date(lastSyncedAt).getTime()
+  if (!Number.isFinite(timestamp)) return true
+
+  return Date.now() - timestamp > AUTO_SYNC_STALE_MS
+}
+
 function formatDateTime(value: string) {
   if (!value) return "Sin sincronizar"
 
@@ -57,7 +190,7 @@ function formatDueDate(value: string) {
 }
 
 function priorityClass(priority: string) {
-  const normalized = priority.toLowerCase()
+  const normalized = normalizeLabel(priority)
 
   if (normalized.includes("urgent") || normalized.includes("alta")) {
     return "border-destructive/30 text-destructive"
@@ -73,30 +206,133 @@ function priorityClass(priority: string) {
   return "border-dashed text-muted-foreground"
 }
 
-function statusColumnClass(index: number) {
-  const accents = [
-    "border-primary/25",
-    "border-sky-500/25",
-    "border-amber-500/25",
-    "border-emerald-500/25",
-    "border-muted-foreground/20",
-  ]
+function statusColumnClass(status: string) {
+  const normalized = normalizeLabel(status)
 
-  return accents[index % accents.length]
+  if (
+    normalized.includes("bloque") ||
+    normalized.includes("correg") ||
+    normalized.includes("deten") ||
+    normalized.includes("stuck")
+  ) {
+    return "border-destructive/35 bg-destructive/5"
+  }
+  if (
+    normalized.includes("aprob") ||
+    normalized.includes("listo") ||
+    normalized.includes("finaliz") ||
+    normalized.includes("revisado") ||
+    normalized.includes("done") ||
+    normalized.includes("complete")
+  ) {
+    return "border-emerald-500/35 bg-emerald-500/5"
+  }
+  if (
+    normalized.includes("revis") ||
+    normalized.includes("approval") ||
+    normalized.includes("aprobacion")
+  ) {
+    return "border-amber-500/35 bg-amber-500/5"
+  }
+  if (normalized.includes("publicar") || normalized.includes("publish")) {
+    return "border-primary/35 bg-primary/5"
+  }
+  if (
+    normalized.includes("proceso") ||
+    normalized.includes("diseñ") ||
+    normalized.includes("trabaj") ||
+    normalized.includes("progress") ||
+    normalized.includes("doing")
+  ) {
+    return "border-sky-500/35 bg-sky-500/5"
+  }
+  if (
+    normalized.includes("por hacer") ||
+    normalized.includes("pendiente") ||
+    normalized.includes("todo") ||
+    normalized.includes("to do") ||
+    normalized.includes("backlog")
+  ) {
+    return "border-muted-foreground/25 bg-card/40"
+  }
+
+  return "border-border bg-card/40"
+}
+
+function statusCountClass(status: string) {
+  const normalized = normalizeLabel(status)
+
+  if (
+    normalized.includes("bloque") ||
+    normalized.includes("correg") ||
+    normalized.includes("deten") ||
+    normalized.includes("stuck")
+  ) {
+    return "bg-destructive/10 text-destructive"
+  }
+  if (
+    normalized.includes("aprob") ||
+    normalized.includes("listo") ||
+    normalized.includes("finaliz") ||
+    normalized.includes("revisado") ||
+    normalized.includes("done") ||
+    normalized.includes("complete")
+  ) {
+    return "bg-emerald-500/15 text-emerald-600 dark:text-emerald-300"
+  }
+  if (
+    normalized.includes("revis") ||
+    normalized.includes("approval") ||
+    normalized.includes("aprobacion")
+  ) {
+    return "bg-amber-500/15 text-amber-600 dark:text-amber-300"
+  }
+  if (normalized.includes("publicar") || normalized.includes("publish")) {
+    return "bg-primary/10 text-primary"
+  }
+  if (
+    normalized.includes("proceso") ||
+    normalized.includes("diseñ") ||
+    normalized.includes("trabaj") ||
+    normalized.includes("progress") ||
+    normalized.includes("doing")
+  ) {
+    return "bg-sky-500/15 text-sky-600 dark:text-sky-300"
+  }
+
+  return "bg-secondary text-muted-foreground"
 }
 
 function groupTasksByStatus(tasks: ClickUpMirrorTask[]) {
-  const groups = new Map<string, ClickUpMirrorTask[]>()
+  const groups = new Map<string, { status: string; tasks: ClickUpMirrorTask[] }>()
 
   for (const task of tasks) {
-    const status = task.status || "Sin estado"
-    groups.set(status, [...(groups.get(status) ?? []), task])
+    const status = getClickUpStatusLabel(task.status || "Sin estado")
+    const key = getPrimaryClickUpStatusKey(task.status)
+      ? status
+      : normalizeClickUpStatus(task.status || "Sin estado")
+    const current = groups.get(key)
+
+    groups.set(key, {
+      status,
+      tasks: [...(current?.tasks ?? []), task],
+    })
   }
 
-  return Array.from(groups.entries()).map(([status, statusTasks]) => ({
-    status,
-    tasks: statusTasks,
-  }))
+  const orderedPrimaryGroups = primaryClickUpStatuses.flatMap((primaryStatus) => {
+    const group = groups.get(primaryStatus.label)
+    return group ? [{ status: group.status, tasks: sortMirrorTasks(group.tasks) }] : []
+  })
+
+  const otherGroups = Array.from(groups.values())
+    .filter((group) => getClickUpStatusSortIndex(group.status) >= primaryClickUpStatuses.length)
+    .sort((a, b) => a.status.localeCompare(b.status, "es"))
+    .map((group) => ({
+      status: group.status,
+      tasks: sortMirrorTasks(group.tasks),
+    }))
+
+  return [...orderedPrimaryGroups, ...otherGroups]
 }
 
 function MirrorTaskCard({ task }: { task: ClickUpMirrorTask }) {
@@ -105,8 +341,13 @@ function MirrorTaskCard({ task }: { task: ClickUpMirrorTask }) {
       ? task.assignees.map((assignee) => assignee.name).join(", ")
       : "Sin responsables"
 
-  return (
-    <Card size="sm" className="bg-background/70">
+  const card = (
+    <Card
+      size="sm"
+      className={`bg-background/70 ${
+        task.taskUrl ? "transition-colors hover:border-primary/35 hover:bg-background" : ""
+      }`}
+    >
       <CardContent className="space-y-3">
         <div className="space-y-1">
           <p className="text-sm font-medium leading-snug">{task.taskName}</p>
@@ -122,19 +363,53 @@ function MirrorTaskCard({ task }: { task: ClickUpMirrorTask }) {
           <Users className="size-3.5" />
           <span className="line-clamp-2">{assignees}</span>
         </p>
-        {task.taskUrl ? (
-          <a
-            href={task.taskUrl}
-            target="_blank"
-            rel="noreferrer"
-            className="inline-flex h-8 w-full items-center justify-center gap-1.5 rounded-lg border border-border bg-background px-2.5 text-xs font-medium transition-colors hover:bg-muted hover:text-foreground"
-          >
-            Abrir en ClickUp
-            <ExternalLink className="size-3.5" />
-          </a>
-        ) : null}
+        <div className="inline-flex h-8 w-full items-center justify-center gap-1.5 rounded-lg border border-border bg-background px-2.5 text-xs font-medium transition-colors group-hover:bg-muted group-hover:text-foreground">
+          {task.taskUrl ? (
+            <>
+              Abrir en ClickUp
+              <ExternalLink className="size-3.5" />
+            </>
+          ) : (
+            "Sin enlace de ClickUp"
+          )}
+        </div>
       </CardContent>
     </Card>
+  )
+
+  if (!task.taskUrl) return card
+
+  return (
+    <a
+      href={task.taskUrl}
+      target="_blank"
+      rel="noreferrer"
+      onClick={(event) => {
+        event.preventDefault()
+        openClickUpTask(task.taskUrl)
+      }}
+      className="group block rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+    >
+      {card}
+    </a>
+  )
+}
+
+function OperationalSummaryMetric({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="rounded-lg border border-border bg-background/60 px-3 py-2">
+      <p className="text-xs text-muted-foreground">{label}</p>
+      <p className="mt-1 text-lg font-semibold tabular-nums">{value}</p>
+    </div>
+  )
+}
+
+function CompactMetric({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="rounded-md border border-border/70 bg-background/50 px-3 py-2">
+      <p className="text-[11px] leading-none text-muted-foreground">{label}</p>
+      <p className="mt-1 text-base font-semibold tabular-nums">{value}</p>
+    </div>
   )
 }
 
@@ -144,6 +419,9 @@ export default function ClickUpMirrorPage() {
   const [syncing, setSyncing] = useState(false)
   const [error, setError] = useState("")
   const [syncMessage, setSyncMessage] = useState("")
+  const [assigneeFilter, setAssigneeFilter] = useState<AssigneeFilter>("Diego")
+  const [assigneeFilterRestored, setAssigneeFilterRestored] = useState(false)
+  const syncInFlightRef = useRef(false)
 
   const lastSyncedAt = useMemo(() => {
     return tasks.reduce((latest, task) => {
@@ -152,9 +430,34 @@ export default function ClickUpMirrorPage() {
     }, "")
   }, [tasks])
 
-  const groupedTasks = useMemo(() => groupTasksByStatus(tasks), [tasks])
+  const filteredTasks = useMemo(
+    () => tasks.filter((task) => taskMatchesAssignee(task, assigneeFilter)),
+    [assigneeFilter, tasks],
+  )
 
-  async function upsertPulledTasks(pulledTasks: PulledClickUpTask[]) {
+  const groupedTasks = useMemo(() => groupTasksByStatus(filteredTasks), [filteredTasks])
+
+  const summary = useMemo(
+    () => ({
+      total: filteredTasks.length,
+      highPriority: filteredTasks.filter((task) => isHighPriority(task.priority)).length,
+      withoutAssignee: filteredTasks.filter((task) => task.assignees.length === 0).length,
+      readyToPublish: filteredTasks.filter((task) => isReadyToPublishStatus(task.status)).length,
+    }),
+    [filteredTasks],
+  )
+
+  const operationalSummary = useMemo(
+    () => ({
+      overdue: filteredTasks.filter(isOverdue).length,
+      dueToday: filteredTasks.filter(isDueToday).length,
+      dueThisWeek: filteredTasks.filter(isDueThisWeek).length,
+      withoutDueDate: filteredTasks.filter((task) => !task.dueDate).length,
+    }),
+    [filteredTasks],
+  )
+
+  const upsertPulledTasks = useCallback(async (pulledTasks: PulledClickUpTask[]) => {
     const supabase = getSupabaseClient()
     const {
       data: { user },
@@ -222,9 +525,9 @@ export default function ClickUpMirrorPage() {
     }
 
     return rows.length
-  }
+  }, [])
 
-  async function loadTasks() {
+  const loadTasks = useCallback(async () => {
     setError("")
     try {
       const nextTasks = await listClickUpMirrorTasks()
@@ -243,9 +546,12 @@ export default function ClickUpMirrorPage() {
     } finally {
       setLoading(false)
     }
-  }
+  }, [])
 
-  async function syncNow() {
+  const syncNow = useCallback(async () => {
+    if (syncInFlightRef.current) return
+
+    syncInFlightRef.current = true
     setSyncing(true)
     setSyncMessage("")
     setError("")
@@ -278,9 +584,31 @@ export default function ClickUpMirrorPage() {
           : "No se pudo sincronizar ClickUp.",
       )
     } finally {
+      syncInFlightRef.current = false
       setSyncing(false)
     }
-  }
+  }, [loadTasks, upsertPulledTasks])
+
+  useEffect(() => {
+    try {
+      const storedFilter = window.localStorage.getItem(ASSIGNEE_FILTER_STORAGE_KEY)
+      if (isAssigneeFilter(storedFilter)) {
+        setAssigneeFilter(storedFilter)
+      }
+    } finally {
+      setAssigneeFilterRestored(true)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!assigneeFilterRestored) return
+
+    try {
+      window.localStorage.setItem(ASSIGNEE_FILTER_STORAGE_KEY, assigneeFilter)
+    } catch {
+      // If localStorage is unavailable, keep the in-page filter state only.
+    }
+  }, [assigneeFilter, assigneeFilterRestored])
 
   useEffect(() => {
     let cancelled = false
@@ -289,7 +617,12 @@ export default function ClickUpMirrorPage() {
       setError("")
       try {
         const nextTasks = await listClickUpMirrorTasks()
-        if (!cancelled) setTasks(nextTasks)
+        if (cancelled) return
+
+        setTasks(nextTasks)
+        if (shouldAutoSync(nextTasks[0]?.syncedAt ?? "")) {
+          void syncNow()
+        }
       } catch (loadError) {
         console.error("[ClickUp Mirror] Initial list load failed", {
           error: loadError,
@@ -313,30 +646,62 @@ export default function ClickUpMirrorPage() {
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [syncNow])
 
   return (
-    <div className="space-y-6">
-      <PageHeader
-        title="ClickUp Mirror"
-        description="Espejo visual de una lista de Rey del Abasto en modo solo lectura."
-        action={
+    <div className="space-y-4">
+      <header className="flex flex-col gap-3 border-b border-border pb-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="space-y-1">
+          <h1 className="text-balance text-xl font-semibold tracking-tight sm:text-2xl">
+            ClickUp Mirror
+          </h1>
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+            <span>Solo lectura de Rey del Abasto</span>
+            <span className="hidden text-border sm:inline">|</span>
+            <span>
+              Sync: {lastSyncedAt ? formatDateTime(lastSyncedAt) : "sin snapshot"}
+            </span>
+            <Badge variant="outline" className="h-5 px-2 text-[11px]">
+              {tasks.length} en cache
+            </Badge>
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
           <Button onClick={syncNow} disabled={syncing} className="gap-2">
             <RefreshCw className={`size-4 ${syncing ? "animate-spin" : ""}`} />
             {syncing ? "Sincronizando" : "Sincronizar ahora"}
           </Button>
-        }
-      />
+        </div>
+      </header>
 
       <Card>
-        <CardContent className="flex flex-col gap-2 p-4 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <p className="text-sm font-medium">Última sincronización</p>
-            <p className="text-sm text-muted-foreground">
-              {lastSyncedAt ? formatDateTime(lastSyncedAt) : "Todavía no hay snapshot guardado."}
-            </p>
+        <CardContent className="flex flex-col gap-3 p-3 lg:flex-row lg:items-center">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center lg:w-72">
+            <p className="text-sm font-medium">Responsable</p>
+            <Select
+              value={assigneeFilter}
+              onValueChange={(value) => {
+                if (isAssigneeFilter(value)) setAssigneeFilter(value)
+              }}
+            >
+              <SelectTrigger className="h-9 w-full sm:w-44">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {ASSIGNEE_FILTERS.map((filter) => (
+                  <SelectItem key={filter} value={filter}>
+                    {filter}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
-          <Badge variant="outline">{tasks.length} tareas en cache</Badge>
+          <div className="grid flex-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">
+            <CompactMetric label="Total visible" value={summary.total} />
+            <CompactMetric label="Urgentes / high" value={summary.highPriority} />
+            <CompactMetric label="Sin responsable" value={summary.withoutAssignee} />
+            <CompactMetric label="Por publicar" value={summary.readyToPublish} />
+          </div>
         </CardContent>
       </Card>
 
@@ -367,14 +732,18 @@ export default function ClickUpMirrorPage() {
       ) : groupedTasks.length > 0 ? (
         <div className="overflow-x-auto pb-2">
           <div className="grid min-w-[860px] gap-4 md:grid-cols-3 xl:grid-cols-4">
-            {groupedTasks.map((group, index) => (
+            {groupedTasks.map((group) => (
               <section
                 key={group.status}
-                className={`rounded-lg border ${statusColumnClass(index)} bg-card/40 p-3`}
+                className={`rounded-lg border ${statusColumnClass(group.status)} p-3`}
               >
                 <div className="mb-3 flex items-center justify-between gap-2">
                   <h2 className="truncate text-sm font-semibold">{group.status}</h2>
-                  <span className="flex size-6 items-center justify-center rounded-full bg-secondary text-xs tabular-nums text-muted-foreground">
+                  <span
+                    className={`flex size-6 items-center justify-center rounded-full text-xs tabular-nums ${statusCountClass(
+                      group.status,
+                    )}`}
+                  >
                     {group.tasks.length}
                   </span>
                 </div>
@@ -390,14 +759,39 @@ export default function ClickUpMirrorPage() {
       ) : (
         <Card>
           <CardContent className="space-y-3 p-6 text-center">
-            <p className="text-sm font-medium">No hay tareas sincronizadas todavía.</p>
+            <p className="text-sm font-medium">
+              {tasks.length > 0
+                ? "No hay tareas para este responsable."
+                : "No hay tareas sincronizadas todavía."}
+            </p>
             <p className="text-sm text-muted-foreground">
-              Configura las variables de ClickUp y usa “Sincronizar ahora” para crear el
-              primer snapshot.
+              {tasks.length > 0
+                ? "Cambia el filtro para ver el resto del tablero."
+                : "Configura las variables de ClickUp y usa “Sincronizar ahora” para crear el primer snapshot."}
             </p>
           </CardContent>
         </Card>
       )}
+
+      <Card>
+        <CardContent className="space-y-3 p-4">
+          <div>
+            <p className="text-sm font-medium">Resumen operativo</p>
+            <p className="text-xs text-muted-foreground">
+              Calculado sobre la vista filtrada actual.
+            </p>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <OperationalSummaryMetric label="Vencidas" value={operationalSummary.overdue} />
+            <OperationalSummaryMetric label="Vencen hoy" value={operationalSummary.dueToday} />
+            <OperationalSummaryMetric
+              label="Vencen esta semana"
+              value={operationalSummary.dueThisWeek}
+            />
+            <OperationalSummaryMetric label="Sin fecha" value={operationalSummary.withoutDueDate} />
+          </div>
+        </CardContent>
+      </Card>
     </div>
   )
 }

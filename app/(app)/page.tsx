@@ -2,13 +2,19 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react"
 import Link from "next/link"
-import { CheckCircle2, FolderKanban, Inbox, ListTodo, Play } from "lucide-react"
+import { CheckCircle2, ExternalLink, FolderKanban, Inbox, ListTodo, Play } from "lucide-react"
 import { PageHeader } from "@/components/page-header"
 import { TaskRow } from "@/components/task-row"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { listInboxItems, listProjects, listTasks } from "@/lib/supabase/data"
-import type { InboxItem, Project, Task } from "@/lib/types"
+import { countPrimaryClickUpStatuses, normalizeClickUpStatus } from "@/lib/clickup/statuses"
+import {
+  listClickUpMirrorTasks,
+  listInboxItems,
+  listProjects,
+  listTasks,
+} from "@/lib/supabase/data"
+import type { ClickUpMirrorTask, InboxItem, Project, Task } from "@/lib/types"
 
 type MetricCardProps = {
   label: string
@@ -32,10 +38,59 @@ function MetricCard({ label, value, icon: Icon }: MetricCardProps) {
   )
 }
 
+function normalizeLabel(value: string) {
+  return normalizeClickUpStatus(value)
+}
+
+function mirrorStatusClass(status: string) {
+  const normalized = normalizeLabel(status)
+
+  if (
+    normalized.includes("bloque") ||
+    normalized.includes("correg") ||
+    normalized.includes("deten") ||
+    normalized.includes("stuck")
+  ) {
+    return "border-destructive/30 bg-destructive/10 text-destructive"
+  }
+  if (
+    normalized.includes("aprob") ||
+    normalized.includes("listo") ||
+    normalized.includes("finaliz") ||
+    normalized.includes("revisado") ||
+    normalized.includes("done") ||
+    normalized.includes("complete")
+  ) {
+    return "border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-300"
+  }
+  if (
+    normalized.includes("revis") ||
+    normalized.includes("approval") ||
+    normalized.includes("aprobacion")
+  ) {
+    return "border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-300"
+  }
+  if (normalized.includes("publicar") || normalized.includes("publish")) {
+    return "border-primary/30 bg-primary/10 text-primary"
+  }
+  if (
+    normalized.includes("proceso") ||
+    normalized.includes("diseñ") ||
+    normalized.includes("trabaj") ||
+    normalized.includes("progress") ||
+    normalized.includes("doing")
+  ) {
+    return "border-sky-500/30 bg-sky-500/10 text-sky-600 dark:text-sky-300"
+  }
+
+  return "border-border bg-secondary text-muted-foreground"
+}
+
 export default function DashboardPage() {
   const [projects, setProjects] = useState<Project[]>([])
   const [tasks, setTasks] = useState<Task[]>([])
   const [inboxItems, setInboxItems] = useState<InboxItem[]>([])
+  const [mirrorTasks, setMirrorTasks] = useState<ClickUpMirrorTask[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState("")
 
@@ -44,15 +99,17 @@ export default function DashboardPage() {
 
     async function loadDashboard() {
       try {
-        const [nextProjects, nextTasks, nextInboxItems] = await Promise.all([
+        const [nextProjects, nextTasks, nextInboxItems, nextMirrorTasks] = await Promise.all([
           listProjects(),
           listTasks(),
           listInboxItems(),
+          listClickUpMirrorTasks(),
         ])
         if (cancelled) return
         setProjects(nextProjects)
         setTasks(nextTasks)
         setInboxItems(nextInboxItems)
+        setMirrorTasks(nextMirrorTasks)
       } catch (caught) {
         if (!cancelled) {
           setError(caught instanceof Error ? caught.message : "No se pudo cargar el dashboard.")
@@ -91,7 +148,12 @@ export default function DashboardPage() {
     .slice(0, 5)
   const latestInboxItems = inboxItems.filter((item) => !item.archived).slice(0, 5)
   const recentProjects = [...projects].reverse().slice(0, 5)
-  const hasAnyData = projects.length > 0 || tasks.length > 0 || inboxItems.length > 0
+  const mirrorStatusCounts = useMemo(
+    () => countPrimaryClickUpStatuses(mirrorTasks),
+    [mirrorTasks],
+  )
+  const hasAnyData =
+    projects.length > 0 || tasks.length > 0 || inboxItems.length > 0 || mirrorTasks.length > 0
 
   return (
     <div className="space-y-6">
@@ -135,6 +197,48 @@ export default function DashboardPage() {
           </div>
 
           <div className="grid gap-4 lg:grid-cols-3">
+            <Card className="lg:col-span-3">
+              <CardHeader>
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <CardTitle className="text-base">ClickUp Mirror</CardTitle>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Snapshot solo lectura de los estados reales de ClickUp.
+                    </p>
+                  </div>
+                  <Link
+                    href="/clickup-mirror"
+                    className="inline-flex items-center gap-1.5 text-xs font-medium text-muted-foreground hover:text-foreground"
+                  >
+                    Ver mirror completo
+                    <ExternalLink className="size-3.5" />
+                  </Link>
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {mirrorTasks.length > 0 ? (
+                  <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                    {mirrorStatusCounts.map((item) => (
+                      <div
+                        key={item.key}
+                        className={`rounded-lg border p-4 ${mirrorStatusClass(item.label)}`}
+                      >
+                        <p className="text-sm font-medium">{item.label}</p>
+                        <p className="mt-2 text-2xl font-semibold tabular-nums">
+                          {item.count}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="rounded-lg border border-dashed border-border p-4 text-sm text-muted-foreground">
+                    Todavía no hay snapshot de ClickUp Mirror. Sincroniza desde la vista del mirror
+                    para ver estados en el dashboard.
+                  </p>
+                )}
+              </CardContent>
+            </Card>
+
             <Card className="lg:col-span-2">
               <CardHeader>
                 <div className="flex items-center justify-between">
