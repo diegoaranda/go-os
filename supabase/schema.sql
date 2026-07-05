@@ -1,5 +1,5 @@
 -- Go OS schema.
--- Core scope: areas, projects, tasks, inbox_items, library_items, weekly_reviews and content_posts.
+-- Core scope: areas, projects, tasks, inbox_items, library_items, weekly_reviews, content_posts and clickup_mirror_tasks.
 
 create extension if not exists pgcrypto;
 
@@ -123,6 +123,25 @@ create table if not exists public.content_posts (
   updated_at timestamptz not null default now()
 );
 
+create table if not exists public.clickup_mirror_tasks (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  source text not null default 'clickup',
+  external_id text not null,
+  list_id text not null,
+  task_name text not null,
+  status text not null default 'Sin estado',
+  priority text,
+  assignees_json jsonb,
+  due_date timestamptz,
+  task_url text,
+  raw_payload jsonb,
+  synced_at timestamptz not null default now(),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique (user_id, list_id, external_id)
+);
+
 create index if not exists areas_user_id_idx on public.areas(user_id);
 create index if not exists projects_user_id_idx on public.projects(user_id);
 create index if not exists projects_user_area_id_idx on public.projects(user_id, area_id);
@@ -141,6 +160,9 @@ create index if not exists content_posts_user_status_idx on public.content_posts
 create index if not exists content_posts_user_channel_idx on public.content_posts(user_id, channel);
 create index if not exists content_posts_user_project_id_idx on public.content_posts(user_id, project_id);
 create index if not exists content_posts_user_area_id_idx on public.content_posts(user_id, area_id);
+create index if not exists clickup_mirror_tasks_user_list_idx on public.clickup_mirror_tasks(user_id, list_id);
+create index if not exists clickup_mirror_tasks_user_status_idx on public.clickup_mirror_tasks(user_id, status);
+create index if not exists clickup_mirror_tasks_user_synced_at_idx on public.clickup_mirror_tasks(user_id, synced_at);
 
 drop trigger if exists set_projects_updated_at on public.projects;
 create trigger set_projects_updated_at
@@ -167,6 +189,11 @@ create trigger set_content_posts_updated_at
 before update on public.content_posts
 for each row execute function public.set_updated_at();
 
+drop trigger if exists set_clickup_mirror_tasks_updated_at on public.clickup_mirror_tasks;
+create trigger set_clickup_mirror_tasks_updated_at
+before update on public.clickup_mirror_tasks
+for each row execute function public.set_updated_at();
+
 alter table public.areas enable row level security;
 alter table public.projects enable row level security;
 alter table public.tasks enable row level security;
@@ -174,6 +201,7 @@ alter table public.inbox_items enable row level security;
 alter table public.library_items enable row level security;
 alter table public.weekly_reviews enable row level security;
 alter table public.content_posts enable row level security;
+alter table public.clickup_mirror_tasks enable row level security;
 
 drop policy if exists "Users can view their own areas" on public.areas;
 create policy "Users can view their own areas"
@@ -449,5 +477,30 @@ with check (
 drop policy if exists "Users can delete their own content posts" on public.content_posts;
 create policy "Users can delete their own content posts"
 on public.content_posts for delete
+to authenticated
+using (auth.uid() = user_id);
+
+drop policy if exists "Users can view their own ClickUp mirror tasks" on public.clickup_mirror_tasks;
+create policy "Users can view their own ClickUp mirror tasks"
+on public.clickup_mirror_tasks for select
+to authenticated
+using (auth.uid() = user_id);
+
+drop policy if exists "Users can insert their own ClickUp mirror tasks" on public.clickup_mirror_tasks;
+create policy "Users can insert their own ClickUp mirror tasks"
+on public.clickup_mirror_tasks for insert
+to authenticated
+with check (auth.uid() = user_id);
+
+drop policy if exists "Users can update their own ClickUp mirror tasks" on public.clickup_mirror_tasks;
+create policy "Users can update their own ClickUp mirror tasks"
+on public.clickup_mirror_tasks for update
+to authenticated
+using (auth.uid() = user_id)
+with check (auth.uid() = user_id);
+
+drop policy if exists "Users can delete their own ClickUp mirror tasks" on public.clickup_mirror_tasks;
+create policy "Users can delete their own ClickUp mirror tasks"
+on public.clickup_mirror_tasks for delete
 to authenticated
 using (auth.uid() = user_id);

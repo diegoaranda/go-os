@@ -89,6 +89,25 @@ export type ContentPost = {
   updatedAt: string
 }
 
+export type ClickUpMirrorAssignee = {
+  id: string
+  name: string
+  email?: string
+}
+
+export type ClickUpMirrorTask = {
+  id: string
+  externalId: string
+  listId: string
+  taskName: string
+  status: string
+  priority: string
+  assignees: ClickUpMirrorAssignee[]
+  dueDate: string
+  taskUrl: string
+  syncedAt: string
+}
+
 export type RdaContentStatus =
   | "Programado"
   | "En revisión"

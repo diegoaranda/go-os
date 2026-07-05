@@ -3,6 +3,8 @@ import type { SupabaseClient } from "@supabase/supabase-js"
 import { getSupabaseClient } from "@/lib/supabase/client"
 import type {
   Area,
+  ClickUpMirrorAssignee,
+  ClickUpMirrorTask,
   ContentPost,
   InboxItem,
   KnowledgeLibraryItem,
@@ -113,6 +115,24 @@ type ContentPostRow = {
   project_id: string | null
   area_id: string | null
   notes: string | null
+  created_at: string
+  updated_at: string
+}
+
+type ClickUpMirrorTaskRow = {
+  id: string
+  user_id: string
+  source: string
+  external_id: string
+  list_id: string
+  task_name: string
+  status: string
+  priority: string | null
+  assignees_json: unknown
+  due_date: string | null
+  task_url: string | null
+  raw_payload: unknown
+  synced_at: string
   created_at: string
   updated_at: string
 }
@@ -397,6 +417,45 @@ function mapContentPostRow(row: ContentPostRow): ContentPost {
     notes: row.notes ?? "",
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+  }
+}
+
+function normalizeClickUpAssignees(value: unknown): ClickUpMirrorAssignee[] {
+  if (!Array.isArray(value)) return []
+
+  return value.flatMap((assignee) => {
+    if (!isRecord(assignee)) return []
+
+    const id = assignee.id
+    const name = assignee.name
+    const email = assignee.email
+
+    if ((typeof id !== "string" && typeof id !== "number") || typeof name !== "string") {
+      return []
+    }
+
+    return [
+      {
+        id: String(id),
+        name,
+        email: typeof email === "string" ? email : undefined,
+      },
+    ]
+  })
+}
+
+function mapClickUpMirrorTaskRow(row: ClickUpMirrorTaskRow): ClickUpMirrorTask {
+  return {
+    id: row.id,
+    externalId: row.external_id,
+    listId: row.list_id,
+    taskName: row.task_name,
+    status: row.status,
+    priority: row.priority ?? "",
+    assignees: normalizeClickUpAssignees(row.assignees_json),
+    dueDate: row.due_date ?? "",
+    taskUrl: row.task_url ?? "",
+    syncedAt: row.synced_at,
   }
 }
 
@@ -939,6 +998,21 @@ export async function deleteContentPost(id: string) {
     .eq("user_id", userId)
 
   if (error) throw error
+}
+
+export async function listClickUpMirrorTasks() {
+  const client = getSupabaseClient()
+  const userId = await getAuthenticatedUserId(client)
+  const { data, error } = await client
+    .from("clickup_mirror_tasks")
+    .select("*")
+    .eq("user_id", userId)
+    .order("status", { ascending: true })
+    .order("updated_at", { ascending: false })
+
+  if (error) throw error
+
+  return (data as ClickUpMirrorTaskRow[]).map(mapClickUpMirrorTaskRow)
 }
 
 export async function getWeeklyReview(weekStart: string) {
