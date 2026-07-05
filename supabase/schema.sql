@@ -1,5 +1,5 @@
--- Go OS Sprint 2A base schema.
--- Scope: projects, tasks and inbox_items only.
+-- Go OS schema.
+-- Core scope: areas, projects, tasks, inbox_items, library_items, weekly_reviews and content_posts.
 
 create extension if not exists pgcrypto;
 
@@ -13,10 +13,18 @@ begin
 end;
 $$;
 
+create table if not exists public.areas (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  name text not null,
+  created_at timestamptz not null default now()
+);
+
 create table if not exists public.projects (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references auth.users(id) on delete cascade,
   name text not null,
+  area_id uuid references public.areas(id) on delete set null,
   client text not null default '',
   status text not null default 'Activo'
     check (status in ('Activo', 'En pausa', 'Planificación', 'Completado')),
@@ -29,6 +37,26 @@ create table if not exists public.projects (
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+
+alter table public.projects
+add column if not exists area_id uuid;
+
+do $$
+begin
+  if not exists (
+    select 1
+    from pg_constraint
+    where conname = 'projects_area_id_fkey'
+      and conrelid = 'public.projects'::regclass
+  ) then
+    alter table public.projects
+    add constraint projects_area_id_fkey
+    foreign key (area_id)
+    references public.areas(id)
+    on delete set null;
+  end if;
+end;
+$$;
 
 create table if not exists public.tasks (
   id uuid primary key default gen_random_uuid(),
@@ -56,12 +84,63 @@ create table if not exists public.inbox_items (
   updated_at timestamptz not null default now()
 );
 
+create table if not exists public.library_items (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  title text not null,
+  type text not null
+    check (type in ('note', 'link', 'resource')),
+  content text,
+  url text,
+  area_id uuid references public.areas(id) on delete set null,
+  project_id uuid references public.projects(id) on delete set null,
+  created_at timestamptz not null default now()
+);
+
+create table if not exists public.weekly_reviews (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  week_start date not null,
+  note text not null default '',
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique (user_id, week_start)
+);
+
+create table if not exists public.content_posts (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  title text not null,
+  description text not null default '',
+  publish_date date not null,
+  channel text not null default '',
+  status text not null default 'Idea'
+    check (status in ('Idea', 'Pendiente', 'Diseñado', 'Programado', 'Publicado', 'Cancelado')),
+  project_id uuid references public.projects(id) on delete set null,
+  area_id uuid references public.areas(id) on delete set null,
+  notes text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create index if not exists areas_user_id_idx on public.areas(user_id);
 create index if not exists projects_user_id_idx on public.projects(user_id);
+create index if not exists projects_user_area_id_idx on public.projects(user_id, area_id);
 create index if not exists projects_user_status_idx on public.projects(user_id, status);
 create index if not exists tasks_user_id_idx on public.tasks(user_id);
 create index if not exists tasks_user_project_id_idx on public.tasks(user_id, project_id);
 create index if not exists tasks_user_status_idx on public.tasks(user_id, status);
 create index if not exists inbox_items_user_archived_idx on public.inbox_items(user_id, archived);
+create index if not exists library_items_user_id_idx on public.library_items(user_id);
+create index if not exists library_items_user_type_idx on public.library_items(user_id, type);
+create index if not exists library_items_user_area_id_idx on public.library_items(user_id, area_id);
+create index if not exists library_items_user_project_id_idx on public.library_items(user_id, project_id);
+create index if not exists weekly_reviews_user_week_idx on public.weekly_reviews(user_id, week_start);
+create index if not exists content_posts_user_publish_date_idx on public.content_posts(user_id, publish_date);
+create index if not exists content_posts_user_status_idx on public.content_posts(user_id, status);
+create index if not exists content_posts_user_channel_idx on public.content_posts(user_id, channel);
+create index if not exists content_posts_user_project_id_idx on public.content_posts(user_id, project_id);
+create index if not exists content_posts_user_area_id_idx on public.content_posts(user_id, area_id);
 
 drop trigger if exists set_projects_updated_at on public.projects;
 create trigger set_projects_updated_at
@@ -78,9 +157,48 @@ create trigger set_inbox_items_updated_at
 before update on public.inbox_items
 for each row execute function public.set_updated_at();
 
+drop trigger if exists set_weekly_reviews_updated_at on public.weekly_reviews;
+create trigger set_weekly_reviews_updated_at
+before update on public.weekly_reviews
+for each row execute function public.set_updated_at();
+
+drop trigger if exists set_content_posts_updated_at on public.content_posts;
+create trigger set_content_posts_updated_at
+before update on public.content_posts
+for each row execute function public.set_updated_at();
+
+alter table public.areas enable row level security;
 alter table public.projects enable row level security;
 alter table public.tasks enable row level security;
 alter table public.inbox_items enable row level security;
+alter table public.library_items enable row level security;
+alter table public.weekly_reviews enable row level security;
+alter table public.content_posts enable row level security;
+
+drop policy if exists "Users can view their own areas" on public.areas;
+create policy "Users can view their own areas"
+on public.areas for select
+to authenticated
+using (auth.uid() = user_id);
+
+drop policy if exists "Users can insert their own areas" on public.areas;
+create policy "Users can insert their own areas"
+on public.areas for insert
+to authenticated
+with check (auth.uid() = user_id);
+
+drop policy if exists "Users can update their own areas" on public.areas;
+create policy "Users can update their own areas"
+on public.areas for update
+to authenticated
+using (auth.uid() = user_id)
+with check (auth.uid() = user_id);
+
+drop policy if exists "Users can delete their own areas" on public.areas;
+create policy "Users can delete their own areas"
+on public.areas for delete
+to authenticated
+using (auth.uid() = user_id);
 
 drop policy if exists "Users can view their own projects" on public.projects;
 create policy "Users can view their own projects"
@@ -92,14 +210,36 @@ drop policy if exists "Users can insert their own projects" on public.projects;
 create policy "Users can insert their own projects"
 on public.projects for insert
 to authenticated
-with check (auth.uid() = user_id);
+with check (
+  auth.uid() = user_id
+  and (
+    area_id is null
+    or exists (
+      select 1
+      from public.areas
+      where areas.id = projects.area_id
+        and areas.user_id = auth.uid()
+    )
+  )
+);
 
 drop policy if exists "Users can update their own projects" on public.projects;
 create policy "Users can update their own projects"
 on public.projects for update
 to authenticated
 using (auth.uid() = user_id)
-with check (auth.uid() = user_id);
+with check (
+  auth.uid() = user_id
+  and (
+    area_id is null
+    or exists (
+      select 1
+      from public.areas
+      where areas.id = projects.area_id
+        and areas.user_id = auth.uid()
+    )
+  )
+);
 
 drop policy if exists "Users can delete their own projects" on public.projects;
 create policy "Users can delete their own projects"
@@ -154,5 +294,160 @@ with check (auth.uid() = user_id);
 drop policy if exists "Users can delete their own inbox items" on public.inbox_items;
 create policy "Users can delete their own inbox items"
 on public.inbox_items for delete
+to authenticated
+using (auth.uid() = user_id);
+
+drop policy if exists "Users can view their own library items" on public.library_items;
+create policy "Users can view their own library items"
+on public.library_items for select
+to authenticated
+using (auth.uid() = user_id);
+
+drop policy if exists "Users can insert their own library items" on public.library_items;
+create policy "Users can insert their own library items"
+on public.library_items for insert
+to authenticated
+with check (
+  auth.uid() = user_id
+  and (
+    area_id is null
+    or exists (
+      select 1
+      from public.areas
+      where areas.id = library_items.area_id
+        and areas.user_id = auth.uid()
+    )
+  )
+  and (
+    project_id is null
+    or exists (
+      select 1
+      from public.projects
+      where projects.id = library_items.project_id
+        and projects.user_id = auth.uid()
+    )
+  )
+);
+
+drop policy if exists "Users can update their own library items" on public.library_items;
+create policy "Users can update their own library items"
+on public.library_items for update
+to authenticated
+using (auth.uid() = user_id)
+with check (
+  auth.uid() = user_id
+  and (
+    area_id is null
+    or exists (
+      select 1
+      from public.areas
+      where areas.id = library_items.area_id
+        and areas.user_id = auth.uid()
+    )
+  )
+  and (
+    project_id is null
+    or exists (
+      select 1
+      from public.projects
+      where projects.id = library_items.project_id
+        and projects.user_id = auth.uid()
+    )
+  )
+);
+
+drop policy if exists "Users can delete their own library items" on public.library_items;
+create policy "Users can delete their own library items"
+on public.library_items for delete
+to authenticated
+using (auth.uid() = user_id);
+
+drop policy if exists "Users can view their own weekly reviews" on public.weekly_reviews;
+create policy "Users can view their own weekly reviews"
+on public.weekly_reviews for select
+to authenticated
+using (auth.uid() = user_id);
+
+drop policy if exists "Users can insert their own weekly reviews" on public.weekly_reviews;
+create policy "Users can insert their own weekly reviews"
+on public.weekly_reviews for insert
+to authenticated
+with check (auth.uid() = user_id);
+
+drop policy if exists "Users can update their own weekly reviews" on public.weekly_reviews;
+create policy "Users can update their own weekly reviews"
+on public.weekly_reviews for update
+to authenticated
+using (auth.uid() = user_id)
+with check (auth.uid() = user_id);
+
+drop policy if exists "Users can delete their own weekly reviews" on public.weekly_reviews;
+create policy "Users can delete their own weekly reviews"
+on public.weekly_reviews for delete
+to authenticated
+using (auth.uid() = user_id);
+
+drop policy if exists "Users can view their own content posts" on public.content_posts;
+create policy "Users can view their own content posts"
+on public.content_posts for select
+to authenticated
+using (auth.uid() = user_id);
+
+drop policy if exists "Users can insert their own content posts" on public.content_posts;
+create policy "Users can insert their own content posts"
+on public.content_posts for insert
+to authenticated
+with check (
+  auth.uid() = user_id
+  and (
+    area_id is null
+    or exists (
+      select 1
+      from public.areas
+      where areas.id = content_posts.area_id
+        and areas.user_id = auth.uid()
+    )
+  )
+  and (
+    project_id is null
+    or exists (
+      select 1
+      from public.projects
+      where projects.id = content_posts.project_id
+        and projects.user_id = auth.uid()
+    )
+  )
+);
+
+drop policy if exists "Users can update their own content posts" on public.content_posts;
+create policy "Users can update their own content posts"
+on public.content_posts for update
+to authenticated
+using (auth.uid() = user_id)
+with check (
+  auth.uid() = user_id
+  and (
+    area_id is null
+    or exists (
+      select 1
+      from public.areas
+      where areas.id = content_posts.area_id
+        and areas.user_id = auth.uid()
+    )
+  )
+  and (
+    project_id is null
+    or exists (
+      select 1
+      from public.projects
+      where projects.id = content_posts.project_id
+        and projects.user_id = auth.uid()
+    )
+  )
+);
+
+drop policy if exists "Users can delete their own content posts" on public.content_posts;
+create policy "Users can delete their own content posts"
+on public.content_posts for delete
 to authenticated
 using (auth.uid() = user_id);

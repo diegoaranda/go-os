@@ -11,9 +11,25 @@ export type TaskStatus =
 
 export type TaskSource = "Manual" | "ClickUp" | "Inbox"
 
+export type LibraryItemType = "note" | "link" | "resource"
+
+export type ContentPostStatus =
+  | "Idea"
+  | "Pendiente"
+  | "Diseñado"
+  | "Programado"
+  | "Publicado"
+  | "Cancelado"
+
+export type Area = {
+  id: string
+  name: string
+}
+
 export type Project = {
   id: string
   name: string
+  areaId?: string
   client: string
   status: ProjectStatus
   priority: Priority
@@ -38,6 +54,39 @@ export type InboxItem = {
   createdAt: string
   suggestedProject: string
   archived?: boolean
+}
+
+export type KnowledgeLibraryItem = {
+  id: string
+  title: string
+  type: LibraryItemType
+  content: string
+  url: string
+  areaId: string
+  projectId: string
+  createdAt: string
+}
+
+export type WeeklyReview = {
+  id: string
+  weekStart: string
+  note: string
+  createdAt: string
+  updatedAt: string
+}
+
+export type ContentPost = {
+  id: string
+  title: string
+  description: string
+  publishDate: string
+  channel: string
+  status: ContentPostStatus
+  projectId: string
+  areaId: string
+  notes: string
+  createdAt: string
+  updatedAt: string
 }
 
 export type RdaContentStatus =
@@ -109,3 +158,37 @@ export type AccessReference = {
   note: string
   storedIn: string
 }
+
+export const priorities: Priority[] = ["Alta", "Media", "Baja"]
+
+export const projectStatuses: ProjectStatus[] = [
+  "Activo",
+  "En pausa",
+  "Planificación",
+  "Completado",
+]
+
+export const taskStatuses: TaskStatus[] = [
+  "Pendiente",
+  "En curso",
+  "En revisión",
+  "Bloqueado",
+  "Terminado",
+]
+
+export const operativeTaskStatuses: TaskStatus[] = [
+  "Pendiente",
+  "En curso",
+  "Terminado",
+]
+
+export const libraryItemTypes: LibraryItemType[] = ["note", "link", "resource"]
+
+export const contentPostStatuses: ContentPostStatus[] = [
+  "Idea",
+  "Pendiente",
+  "Diseñado",
+  "Programado",
+  "Publicado",
+  "Cancelado",
+]

@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 import { LogOut, Plus, X, MessageCircle, ListTodo } from "lucide-react"
 import { PageHeader } from "@/components/page-header"
@@ -20,6 +20,33 @@ import { Badge } from "@/components/ui/badge"
 import { quickLinks } from "@/lib/data"
 import { accessReferences } from "@/lib/mock-data"
 import { getSupabaseClient } from "@/lib/supabase/client"
+
+function getMetadataValue(
+  metadata: Record<string, unknown> | undefined,
+  keys: string[],
+) {
+  if (!metadata) return ""
+
+  for (const key of keys) {
+    const value = metadata[key]
+    if (typeof value === "string" && value.trim()) return value.trim()
+  }
+
+  return ""
+}
+
+function getInitials(email: string, name: string) {
+  const source = name || email
+  const parts = source
+    .split(/[\s@._-]+/)
+    .map((part) => part.trim())
+    .filter(Boolean)
+
+  return parts
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase())
+    .join("")
+}
 
 function SettingSwitch({
   label,
@@ -47,6 +74,56 @@ export default function SettingsPage() {
   const [links, setLinks] = useState(quickLinks.map((l) => l.label))
   const [newLink, setNewLink] = useState("")
   const [isSigningOut, setIsSigningOut] = useState(false)
+  const [isAccountLoading, setIsAccountLoading] = useState(true)
+  const [isProfileSaving, setIsProfileSaving] = useState(false)
+  const [accountEmail, setAccountEmail] = useState("")
+  const [displayName, setDisplayName] = useState("")
+  const [draftName, setDraftName] = useState("")
+  const [accountError, setAccountError] = useState("")
+  const [accountSuccess, setAccountSuccess] = useState("")
+
+  useEffect(() => {
+    let cancelled = false
+
+    async function loadAccount() {
+      setAccountError("")
+      try {
+        const supabase = getSupabaseClient()
+        const { data, error } = await supabase.auth.getUser()
+
+        if (error) throw error
+        if (!data.user) throw new Error("No hay usuario autenticado.")
+        if (cancelled) return
+
+        const metadata = data.user.user_metadata
+        const name = getMetadataValue(metadata, [
+          "display_name",
+          "full_name",
+          "name",
+        ])
+
+        setAccountEmail(data.user.email ?? "")
+        setDisplayName(name)
+        setDraftName(name)
+      } catch (caught) {
+        if (!cancelled) {
+          setAccountError(
+            caught instanceof Error
+              ? caught.message
+              : "No se pudo cargar la cuenta.",
+          )
+        }
+      } finally {
+        if (!cancelled) setIsAccountLoading(false)
+      }
+    }
+
+    loadAccount()
+
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   const addLink = () => {
     const v = newLink.trim()
@@ -62,6 +139,53 @@ export default function SettingsPage() {
     await fetch("/api/auth/session", { method: "DELETE" })
     router.replace("/login")
   }
+
+  const saveProfile = async () => {
+    const name = draftName.trim()
+    setAccountError("")
+    setAccountSuccess("")
+    setIsProfileSaving(true)
+
+    try {
+      const supabase = getSupabaseClient()
+      const { data: userData, error: userError } = await supabase.auth.getUser()
+
+      if (userError) throw userError
+      if (!userData.user) throw new Error("No hay usuario autenticado.")
+
+      const { data, error } = await supabase.auth.updateUser({
+        data: {
+          ...userData.user.user_metadata,
+          display_name: name,
+          full_name: name,
+          name,
+        },
+      })
+
+      if (error) throw error
+
+      const metadata = data.user.user_metadata
+      const nextName = getMetadataValue(metadata, [
+        "display_name",
+        "full_name",
+        "name",
+      ])
+
+      setDisplayName(nextName)
+      setDraftName(nextName)
+      setAccountSuccess("Perfil actualizado.")
+    } catch (caught) {
+      setAccountError(
+        caught instanceof Error
+          ? caught.message
+          : "No se pudo actualizar el perfil.",
+      )
+    } finally {
+      setIsProfileSaving(false)
+    }
+  }
+
+  const initials = getInitials(accountEmail, displayName)
 
   return (
     <div className="space-y-6">
@@ -80,13 +204,27 @@ export default function SettingsPage() {
           <CardContent className="space-y-4">
             <div className="flex items-center gap-3">
               <div className="flex size-12 items-center justify-center rounded-full bg-secondary text-sm font-semibold">
-                DA
+                {initials || "GO"}
               </div>
               <div>
-                <p className="text-sm font-medium">Diego</p>
-                <p className="text-xs text-muted-foreground">Operador</p>
+                <p className="text-sm font-medium">
+                  {isAccountLoading ? "Cargando cuenta..." : displayName || "Sin nombre"}
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  {accountEmail || "Email no disponible"}
+                </p>
               </div>
             </div>
+            {accountError ? (
+              <p className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+                {accountError}
+              </p>
+            ) : null}
+            {accountSuccess ? (
+              <p className="rounded-md border border-primary/20 bg-primary/10 px-3 py-2 text-sm text-primary">
+                {accountSuccess}
+              </p>
+            ) : null}
             <Button
               variant="outline"
               size="sm"
@@ -100,13 +238,33 @@ export default function SettingsPage() {
             <div className="grid gap-3 sm:grid-cols-2">
               <div className="space-y-1.5">
                 <Label htmlFor="name">Nombre</Label>
-                <Input id="name" defaultValue="Diego" />
+                <Input
+                  id="name"
+                  value={draftName}
+                  onChange={(event) => {
+                    setDraftName(event.target.value)
+                    setAccountSuccess("")
+                  }}
+                  placeholder="Nombre visible"
+                  disabled={isAccountLoading || isProfileSaving}
+                />
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="email">Email</Label>
-                <Input id="email" type="email" defaultValue="diego@go-os.app" />
+                <Input id="email" type="email" value={accountEmail} readOnly />
               </div>
             </div>
+            <Button
+              size="sm"
+              onClick={saveProfile}
+              disabled={
+                isAccountLoading ||
+                isProfileSaving ||
+                draftName.trim() === displayName
+              }
+            >
+              {isProfileSaving ? "Guardando..." : "Guardar perfil"}
+            </Button>
           </CardContent>
         </Card>
 

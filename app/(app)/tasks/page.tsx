@@ -15,7 +15,6 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { priorities, taskStatuses } from "@/lib/store"
 import {
   createTask,
   deleteTask,
@@ -23,19 +22,14 @@ import {
   listTasks,
   updateTask,
 } from "@/lib/supabase/data"
-import type { Priority, Project, Task, TaskSource, TaskStatus } from "@/lib/types"
+import { operativeTaskStatuses, type Project, type Task, type TaskStatus } from "@/lib/types"
 
-const sources: TaskSource[] = ["Manual", "ClickUp", "Inbox"]
-const dueOptions = ["Hoy", "Mañana", "Esta semana", "Sin fecha"]
 const ALL = "all"
 
 type TaskFormState = {
   title: string
   projectId: string
   status: TaskStatus
-  priority: Priority
-  due: string
-  source: TaskSource
 }
 
 function fromTask(task?: Task, projectId = ""): TaskFormState {
@@ -43,9 +37,6 @@ function fromTask(task?: Task, projectId = ""): TaskFormState {
     title: task?.title ?? "",
     projectId: task?.projectId ?? projectId,
     status: task?.status ?? "Pendiente",
-    priority: task?.priority ?? "Media",
-    due: task?.due ?? "Hoy",
-    source: task?.source ?? "Manual",
   }
 }
 
@@ -60,9 +51,16 @@ function TaskForm({
   onSubmit: (input: Omit<Task, "id">) => void | Promise<void>
   onCancel?: () => void
 }) {
-  const [form, setForm] = useState<TaskFormState>(() => fromTask(initial, projects[0]?.id ?? ""))
+  const [form, setForm] = useState<TaskFormState>(() =>
+    fromTask(initial, projects[0]?.id ?? ""),
+  )
   const [isSubmitting, setIsSubmitting] = useState(false)
   const selectedProjectId = form.projectId || projects[0]?.id || ""
+  const preservedTaskFields = {
+    priority: initial?.priority ?? "Media",
+    due: initial?.due ?? "Hoy",
+    source: initial?.source ?? "Manual",
+  } satisfies Pick<Task, "priority" | "due" | "source">
 
   const submit = async () => {
     const title = form.title.trim()
@@ -74,9 +72,7 @@ function TaskForm({
         title,
         projectId: selectedProjectId,
         status: form.status,
-        priority: form.priority,
-        due: form.due,
-        source: form.source,
+        ...preservedTaskFields,
       })
       if (!initial) setForm(fromTask(undefined, projects[0]?.id ?? ""))
     } catch {
@@ -87,13 +83,15 @@ function TaskForm({
   }
 
   return (
-    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-6">
-      <div className="flex flex-col gap-1.5 sm:col-span-2 lg:col-span-2">
+    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="flex flex-col gap-1.5 sm:col-span-2">
         <Label htmlFor={initial ? `title-${initial.id}` : "new-task-title"}>Tarea</Label>
         <Input
           id={initial ? `title-${initial.id}` : "new-task-title"}
           value={form.title}
-          onChange={(event) => setForm((current) => ({ ...current, title: event.target.value }))}
+          onChange={(event) =>
+            setForm((current) => ({ ...current, title: event.target.value }))
+          }
           placeholder="Nueva tarea"
         />
       </div>
@@ -129,69 +127,9 @@ function TaskForm({
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            {taskStatuses.map((status) => (
+            {operativeTaskStatuses.map((status) => (
               <SelectItem key={status} value={status}>
                 {status}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
-      <div className="flex flex-col gap-1.5">
-        <Label>Prioridad</Label>
-        <Select
-          value={form.priority}
-          onValueChange={(value) =>
-            setForm((current) => ({ ...current, priority: value as Priority }))
-          }
-        >
-          <SelectTrigger className="w-full">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {priorities.map((priority) => (
-              <SelectItem key={priority} value={priority}>
-                {priority}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
-      <div className="flex flex-col gap-1.5">
-        <Label>Fecha</Label>
-        <Select
-          value={form.due}
-          onValueChange={(value) =>
-            setForm((current) => ({ ...current, due: value ?? current.due }))
-          }
-        >
-          <SelectTrigger className="w-full">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {dueOptions.map((due) => (
-              <SelectItem key={due} value={due}>
-                {due}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
-      <div className="flex flex-col gap-1.5">
-        <Label>Origen</Label>
-        <Select
-          value={form.source}
-          onValueChange={(value) =>
-            setForm((current) => ({ ...current, source: value as TaskSource }))
-          }
-        >
-          <SelectTrigger className="w-full">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {sources.map((source) => (
-              <SelectItem key={source} value={source}>
-                {source}
               </SelectItem>
             ))}
           </SelectContent>
@@ -221,10 +159,7 @@ function TaskForm({
 export default function TasksPage() {
   const [tasks, setTasks] = useState<Task[]>([])
   const [projects, setProjects] = useState<Project[]>([])
-  const [project, setProject] = useState(ALL)
-  const [priority, setPriority] = useState(ALL)
   const [status, setStatus] = useState(ALL)
-  const [source, setSource] = useState(ALL)
   const [editing, setEditing] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState("")
@@ -258,30 +193,14 @@ export default function TasksPage() {
   }, [])
 
   const projectName = useCallback(
-    (id: string) => projects.find((item) => item.id === id)?.name ?? id,
+    (id: string) => projects.find((item) => item.id === id)?.name ?? "Sin proyecto",
     [projects],
   )
 
   const filtered = useMemo(
-    () =>
-      tasks.filter(
-        (task) =>
-          (project === ALL || task.projectId === project) &&
-          (priority === ALL || task.priority === priority) &&
-          (status === ALL || task.status === status) &&
-          (source === ALL || task.source === source),
-      ),
-    [tasks, project, priority, status, source],
+    () => tasks.filter((task) => status === ALL || task.status === status),
+    [tasks, status],
   )
-
-  const reset = () => {
-    setProject(ALL)
-    setPriority(ALL)
-    setStatus(ALL)
-    setSource(ALL)
-  }
-
-  const hasFilters = [project, priority, status, source].some((filter) => filter !== ALL)
 
   const createSupabaseTask = async (input: Omit<Task, "id">) => {
     setError("")
@@ -309,6 +228,9 @@ export default function TasksPage() {
   }
 
   const deleteSupabaseTask = async (id: string) => {
+    const shouldDelete = window.confirm("¿Eliminar esta tarea?")
+    if (!shouldDelete) return
+
     setError("")
     try {
       await deleteTask(id)
@@ -323,7 +245,7 @@ export default function TasksPage() {
     <div className="space-y-6">
       <PageHeader
         title="Tasks"
-        description="Todas tus tareas, con filtros por proyecto, prioridad, estado y origen."
+        description="Gestiona tareas reales de Supabase con edición básica y filtros por estado."
       />
 
       <Card>
@@ -349,88 +271,36 @@ export default function TasksPage() {
         </Card>
       ) : null}
 
-      <div className="flex flex-wrap items-center gap-2">
-        <Select value={project} onValueChange={(value) => setProject(value ?? ALL)}>
-          <SelectTrigger className="w-[170px]" size="sm">
-            <SelectValue>
-              {(value) =>
-                value === ALL
-                  ? "Todos los proyectos"
-                  : projects.find((item) => item.id === value)?.name
-              }
-            </SelectValue>
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value={ALL}>Todos los proyectos</SelectItem>
-            {projects.map((item) => (
-              <SelectItem key={item.id} value={item.id}>
-                {item.name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+      {!isLoading ? (
+        <div className="flex flex-wrap items-center gap-2">
+          <Select value={status} onValueChange={(value) => setStatus(value ?? ALL)}>
+            <SelectTrigger className="w-[150px]" size="sm">
+              <SelectValue>{status === ALL ? "Todas" : status}</SelectValue>
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={ALL}>Todas</SelectItem>
+              {operativeTaskStatuses.map((item) => (
+                <SelectItem key={item} value={item}>
+                  {item}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
 
-        <Select value={priority} onValueChange={(value) => setPriority(value ?? ALL)}>
-          <SelectTrigger className="w-[140px]" size="sm">
-            <SelectValue>
-              {(value) => (value === ALL ? "Toda prioridad" : (value as string))}
-            </SelectValue>
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value={ALL}>Toda prioridad</SelectItem>
-            {priorities.map((item) => (
-              <SelectItem key={item} value={item}>
-                {item}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+          {status !== ALL ? (
+            <Button variant="ghost" size="sm" onClick={() => setStatus(ALL)}>
+              Limpiar
+            </Button>
+          ) : null}
 
-        <Select value={status} onValueChange={(value) => setStatus(value ?? ALL)}>
-          <SelectTrigger className="w-[150px]" size="sm">
-            <SelectValue>
-              {(value) => (value === ALL ? "Todo estado" : (value as string))}
-            </SelectValue>
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value={ALL}>Todo estado</SelectItem>
-            {taskStatuses.map((item) => (
-              <SelectItem key={item} value={item}>
-                {item}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-
-        <Select value={source} onValueChange={(value) => setSource(value ?? ALL)}>
-          <SelectTrigger className="w-[130px]" size="sm">
-            <SelectValue>
-              {(value) => (value === ALL ? "Todo origen" : (value as string))}
-            </SelectValue>
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value={ALL}>Todo origen</SelectItem>
-            {sources.map((item) => (
-              <SelectItem key={item} value={item}>
-                {item}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-
-        {hasFilters ? (
-          <Button variant="ghost" size="sm" onClick={reset}>
-            Limpiar
-          </Button>
-        ) : null}
-
-        <span className="ml-auto text-xs text-muted-foreground">
-          {filtered.length} {filtered.length === 1 ? "tarea" : "tareas"}
-        </span>
-      </div>
+          <span className="ml-auto text-xs text-muted-foreground">
+            {filtered.length} {filtered.length === 1 ? "tarea" : "tareas"}
+          </span>
+        </div>
+      ) : null}
 
       <div className="space-y-2">
-        {filtered.length > 0 ? (
+        {!isLoading && filtered.length > 0 ? (
           filtered.map((task) =>
             editing === task.id ? (
               <Card key={task.id}>
@@ -473,11 +343,15 @@ export default function TasksPage() {
               </div>
             ),
           )
-        ) : (
+        ) : null}
+
+        {!isLoading && !error && filtered.length === 0 ? (
           <p className="rounded-lg border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
-            No hay tareas que coincidan con los filtros.
+            {tasks.length === 0
+              ? "No hay tareas todavía. Crea una tarea para empezar."
+              : "No hay tareas que coincidan con los filtros."}
           </p>
-        )}
+        ) : null}
       </div>
     </div>
   )

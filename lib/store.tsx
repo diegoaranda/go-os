@@ -17,12 +17,17 @@ import {
 } from "@/lib/mock-data"
 import type {
   InboxItem,
-  Priority,
   Project,
-  ProjectStatus,
   RdaContentItem,
   Task,
-  TaskStatus,
+} from "@/lib/types"
+import {
+  priorities as sharedPriorities,
+  projectStatuses as sharedProjectStatuses,
+  taskStatuses as sharedTaskStatuses,
+  type Priority,
+  type ProjectStatus,
+  type TaskStatus,
 } from "@/lib/types"
 
 const STORAGE_KEY = "go-os-sprint-1-state"
@@ -306,17 +311,6 @@ export function useAppStore() {
   return context
 }
 
-export const projectStatuses: ProjectStatus[] = [
-  "Activo",
-  "En pausa",
-  "Planificación",
-  "Completado",
-]
-export const taskStatuses: TaskStatus[] = [
-  "Pendiente",
-  "En curso",
-  "En revisión",
-  "Bloqueado",
-  "Terminado",
-]
-export const priorities: Priority[] = ["Alta", "Media", "Baja"]
+export const projectStatuses: ProjectStatus[] = sharedProjectStatuses
+export const taskStatuses: TaskStatus[] = sharedTaskStatuses
+export const priorities: Priority[] = sharedPriorities

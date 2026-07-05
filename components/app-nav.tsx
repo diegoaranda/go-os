@@ -5,6 +5,9 @@ import { usePathname } from "next/navigation"
 import {
   LayoutDashboard,
   CalendarCheck,
+  CalendarDays,
+  ClipboardCheck,
+  Layers,
   FolderKanban,
   ListChecks,
   Inbox,
@@ -17,6 +20,9 @@ import { cn } from "@/lib/utils"
 export const navItems = [
   { href: "/", label: "Dashboard", icon: LayoutDashboard },
   { href: "/today", label: "Today", icon: CalendarCheck },
+  { href: "/weekly-review", label: "Weekly Review", icon: ClipboardCheck },
+  { href: "/content-planner", label: "Content Planner", icon: CalendarDays },
+  { href: "/areas", label: "Areas", icon: Layers },
   { href: "/projects", label: "Projects", icon: FolderKanban },
   { href: "/tasks", label: "Tasks", icon: ListChecks },
   { href: "/inbox", label: "Inbox", icon: Inbox },

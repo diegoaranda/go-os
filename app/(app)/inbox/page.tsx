@@ -7,6 +7,13 @@ import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { QuickCapture } from "@/components/quick-capture"
 import {
   createInboxItem,
@@ -18,11 +25,28 @@ import {
 } from "@/lib/supabase/data"
 import type { InboxItem, Project } from "@/lib/types"
 
+const FILTERS = {
+  pending: "Pendientes",
+  archived: "Archivados",
+  all: "Todos",
+} as const
+
+type InboxFilter = keyof typeof FILTERS
+
+const emptyMessages: Record<InboxFilter, string> = {
+  pending: "Inbox sin pendientes. Todo procesado.",
+  archived: "No hay items archivados todavía.",
+  all: "Inbox vacío. Captura una idea o pendiente para empezar.",
+}
+
 export default function InboxPage() {
   const [inboxItems, setInboxItems] = useState<InboxItem[]>([])
   const [projects, setProjects] = useState<Project[]>([])
+  const [filter, setFilter] = useState<InboxFilter>("pending")
   const [editing, setEditing] = useState<string | null>(null)
   const [editContent, setEditContent] = useState("")
+  const [editProjectId, setEditProjectId] = useState("")
+  const [convertProjectByItem, setConvertProjectByItem] = useState<Record<string, string>>({})
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState("")
 
@@ -75,6 +99,7 @@ export default function InboxPage() {
   const startEditing = (item: InboxItem) => {
     setEditing(item.id)
     setEditContent(item.content)
+    setEditProjectId(item.suggestedProject || projects[0]?.id || "")
   }
 
   const saveInboxItem = async (id: string) => {
@@ -82,12 +107,16 @@ export default function InboxPage() {
     if (!content) return
     setError("")
     try {
-      const item = await updateInboxItem(id, { content })
+      const item = await updateInboxItem(id, {
+        content,
+        suggestedProject: editProjectId,
+      })
       setInboxItems((current) =>
         current.map((currentItem) => (currentItem.id === id ? item : currentItem)),
       )
       setEditing(null)
       setEditContent("")
+      setEditProjectId("")
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "No se pudo editar el item.")
     }
@@ -106,6 +135,8 @@ export default function InboxPage() {
   }
 
   const removeInboxItem = async (id: string) => {
+    const shouldDelete = window.confirm("¿Eliminar este item del inbox?")
+    if (!shouldDelete) return
     setError("")
     try {
       await deleteInboxItem(id)
@@ -117,7 +148,7 @@ export default function InboxPage() {
   }
 
   const convertInboxItemToTask = async (item: InboxItem) => {
-    const projectId = item.suggestedProject || projects[0]?.id
+    const projectId = convertProjectByItem[item.id] || item.suggestedProject || projects[0]?.id
     if (!projectId) {
       setError("Crea un proyecto antes de convertir este item en tarea.")
       return
@@ -135,12 +166,21 @@ export default function InboxPage() {
       })
       await deleteInboxItem(item.id)
       setInboxItems((current) => current.filter((currentItem) => currentItem.id !== item.id))
+      setConvertProjectByItem((current) => {
+        const next = { ...current }
+        delete next[item.id]
+        return next
+      })
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "No se pudo convertir el item.")
     }
   }
 
-  const items = inboxItems.filter((item) => !item.archived)
+  const items = inboxItems.filter((item) => {
+    if (filter === "pending") return !item.archived
+    if (filter === "archived") return item.archived
+    return true
+  })
 
   return (
     <div className="space-y-6">
@@ -174,12 +214,29 @@ export default function InboxPage() {
       ) : null}
 
       <div className="space-y-2">
-        <div className="flex items-baseline justify-between">
-          <h2 className="text-sm font-semibold">Por procesar</h2>
-          <span className="text-xs text-muted-foreground">{items.length}</span>
-        </div>
+        {!isLoading ? (
+          <>
+            <div className="flex items-baseline justify-between">
+              <h2 className="text-sm font-semibold">{FILTERS[filter]}</h2>
+              <span className="text-xs text-muted-foreground">{items.length}</span>
+            </div>
 
-        {items.length > 0 ? (
+            <div className="flex flex-wrap items-center gap-2">
+              {(Object.keys(FILTERS) as InboxFilter[]).map((key) => (
+                <Button
+                  key={key}
+                  size="sm"
+                  variant={filter === key ? "default" : "outline"}
+                  onClick={() => setFilter(key)}
+                >
+                  {FILTERS[key]}
+                </Button>
+              ))}
+            </div>
+          </>
+        ) : null}
+
+        {!isLoading && items.length > 0 ? (
           items.map((item) => (
             <div
               key={item.id}
@@ -208,6 +265,23 @@ export default function InboxPage() {
                     Sugerido: {projectName(item.suggestedProject)}
                   </Badge>
                 </div>
+                {editing === item.id ? (
+                  <Select
+                    value={editProjectId}
+                    onValueChange={(value) => setEditProjectId(value ?? "")}
+                  >
+                    <SelectTrigger className="h-8 w-full sm:w-[220px]">
+                      <SelectValue placeholder="Proyecto sugerido" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {projects.map((project) => (
+                        <SelectItem key={project.id} value={project.id}>
+                          {project.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                ) : null}
               </div>
               <div className="flex shrink-0 items-center gap-2">
                 {editing === item.id ? (
@@ -237,11 +311,39 @@ export default function InboxPage() {
                   </>
                 ) : (
                   <>
+                    {!item.archived ? (
+                      <Select
+                        value={
+                          convertProjectByItem[item.id] ||
+                          item.suggestedProject ||
+                          projects[0]?.id ||
+                          ""
+                        }
+                        onValueChange={(value) =>
+                          setConvertProjectByItem((current) => ({
+                            ...current,
+                            [item.id]: value ?? "",
+                          }))
+                        }
+                      >
+                        <SelectTrigger className="h-8 w-[150px]">
+                          <SelectValue placeholder="Proyecto" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {projects.map((project) => (
+                            <SelectItem key={project.id} value={project.id}>
+                              {project.name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    ) : null}
                     <Button
                       size="sm"
                       onClick={() => {
                         void convertInboxItemToTask(item)
                       }}
+                      disabled={item.archived}
                       className="h-8 gap-1"
                     >
                       <CheckCircle2 className="size-3.5" />
@@ -263,6 +365,7 @@ export default function InboxPage() {
                       onClick={() => {
                         void archiveInboxItem(item.id)
                       }}
+                      disabled={item.archived}
                       className="h-8 gap-1 text-muted-foreground"
                     >
                       <Archive className="size-3.5" />
@@ -284,11 +387,13 @@ export default function InboxPage() {
               </div>
             </div>
           ))
-        ) : (
+        ) : null}
+
+        {!isLoading && !error && items.length === 0 ? (
           <p className="rounded-lg border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
-            Inbox vacío. Todo procesado.
+            {emptyMessages[filter]}
           </p>
-        )}
+        ) : null}
       </div>
     </div>
   )
