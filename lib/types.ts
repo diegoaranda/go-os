@@ -21,6 +21,21 @@ export type ContentPostStatus =
   | "Publicado"
   | "Cancelado"
 
+export type ContentBrand =
+  | "Rey del Abasto"
+  | "Sudamerican"
+  | "Inmobiliaria"
+  | "Medalleros"
+  | "Marca personal"
+
+export type ContentPlanningStatus =
+  | "pendiente de producción"
+  | "en diseño"
+  | "copy listo"
+  | "listo para programar"
+
+export type ContentPublishingStatus = "pendiente" | "programado" | "publicado"
+
 export type Area = {
   id: string
   name: string
@@ -84,6 +99,54 @@ export type ContentPost = {
   status: ContentPostStatus
   projectId: string
   areaId: string
+  notes: string
+  createdAt: string
+  updatedAt: string
+}
+
+export type ContentPlanningItem = {
+  id: string
+  brand: ContentBrand
+  weekLabel: string
+  targetDate: string
+  productLine: string
+  goal: string
+  format: string
+  messageAngle: string
+  cta: string
+  channel: string
+  responsible: string
+  planningStatus: ContentPlanningStatus
+  notes: string
+  createdAt: string
+  updatedAt: string
+}
+
+export type ContentPublishingItem = {
+  id: string
+  planningItemId: string
+  brand: ContentBrand
+  publishDate: string
+  publishTime: string
+  productLine: string
+  channel: string
+  finalCopy: string
+  assetUrl: string
+  publishingStatus: ContentPublishingStatus
+  notes: string
+  createdAt: string
+  updatedAt: string
+}
+
+export type ContentResultItem = {
+  id: string
+  publishingItemId: string
+  brand: ContentBrand
+  weekLabel: string
+  publishDate: string
+  productLine: string
+  reach: number
+  impressions: number
   notes: string
   createdAt: string
   updatedAt: string
@@ -210,4 +273,25 @@ export const contentPostStatuses: ContentPostStatus[] = [
   "Programado",
   "Publicado",
   "Cancelado",
+]
+
+export const contentBrands: ContentBrand[] = [
+  "Rey del Abasto",
+  "Sudamerican",
+  "Inmobiliaria",
+  "Medalleros",
+  "Marca personal",
+]
+
+export const contentPlanningStatuses: ContentPlanningStatus[] = [
+  "pendiente de producción",
+  "en diseño",
+  "copy listo",
+  "listo para programar",
+]
+
+export const contentPublishingStatuses: ContentPublishingStatus[] = [
+  "pendiente",
+  "programado",
+  "publicado",
 ]

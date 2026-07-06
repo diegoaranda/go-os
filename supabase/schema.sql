@@ -123,6 +123,59 @@ create table if not exists public.content_posts (
   updated_at timestamptz not null default now()
 );
 
+create table if not exists public.content_planning_items (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  brand text not null,
+  week_label text not null default '',
+  target_date date not null,
+  product_line text not null default '',
+  goal text not null default '',
+  format text not null default '',
+  message_angle text not null default '',
+  cta text not null default '',
+  channel text not null default '',
+  responsible text not null default '',
+  planning_status text not null default 'pendiente de producción'
+    check (planning_status in ('pendiente de producción', 'en diseño', 'copy listo', 'listo para programar')),
+  notes text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create table if not exists public.content_publishing_items (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  planning_item_id uuid references public.content_planning_items(id) on delete set null,
+  brand text not null,
+  publish_date date not null,
+  publish_time time,
+  product_line text not null default '',
+  channel text not null default '',
+  final_copy text not null default '',
+  asset_url text,
+  publishing_status text not null default 'pendiente'
+    check (publishing_status in ('pendiente', 'programado', 'publicado')),
+  notes text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create table if not exists public.content_results (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  publishing_item_id uuid references public.content_publishing_items(id) on delete set null,
+  brand text not null,
+  week_label text not null default '',
+  publish_date date not null,
+  product_line text not null default '',
+  reach integer not null default 0 check (reach >= 0),
+  impressions integer not null default 0 check (impressions >= 0),
+  notes text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
 create table if not exists public.clickup_mirror_tasks (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references auth.users(id) on delete cascade,
@@ -160,6 +213,17 @@ create index if not exists content_posts_user_status_idx on public.content_posts
 create index if not exists content_posts_user_channel_idx on public.content_posts(user_id, channel);
 create index if not exists content_posts_user_project_id_idx on public.content_posts(user_id, project_id);
 create index if not exists content_posts_user_area_id_idx on public.content_posts(user_id, area_id);
+create index if not exists content_planning_items_user_brand_idx on public.content_planning_items(user_id, brand);
+create index if not exists content_planning_items_user_week_idx on public.content_planning_items(user_id, week_label);
+create index if not exists content_planning_items_user_target_date_idx on public.content_planning_items(user_id, target_date);
+create index if not exists content_planning_items_user_status_idx on public.content_planning_items(user_id, planning_status);
+create index if not exists content_publishing_items_user_brand_idx on public.content_publishing_items(user_id, brand);
+create index if not exists content_publishing_items_user_publish_date_idx on public.content_publishing_items(user_id, publish_date);
+create index if not exists content_publishing_items_user_channel_idx on public.content_publishing_items(user_id, channel);
+create index if not exists content_publishing_items_user_status_idx on public.content_publishing_items(user_id, publishing_status);
+create index if not exists content_results_user_brand_idx on public.content_results(user_id, brand);
+create index if not exists content_results_user_week_idx on public.content_results(user_id, week_label);
+create index if not exists content_results_user_publish_date_idx on public.content_results(user_id, publish_date);
 create index if not exists clickup_mirror_tasks_user_list_idx on public.clickup_mirror_tasks(user_id, list_id);
 create index if not exists clickup_mirror_tasks_user_status_idx on public.clickup_mirror_tasks(user_id, status);
 create index if not exists clickup_mirror_tasks_user_synced_at_idx on public.clickup_mirror_tasks(user_id, synced_at);
@@ -189,6 +253,21 @@ create trigger set_content_posts_updated_at
 before update on public.content_posts
 for each row execute function public.set_updated_at();
 
+drop trigger if exists set_content_planning_items_updated_at on public.content_planning_items;
+create trigger set_content_planning_items_updated_at
+before update on public.content_planning_items
+for each row execute function public.set_updated_at();
+
+drop trigger if exists set_content_publishing_items_updated_at on public.content_publishing_items;
+create trigger set_content_publishing_items_updated_at
+before update on public.content_publishing_items
+for each row execute function public.set_updated_at();
+
+drop trigger if exists set_content_results_updated_at on public.content_results;
+create trigger set_content_results_updated_at
+before update on public.content_results
+for each row execute function public.set_updated_at();
+
 drop trigger if exists set_clickup_mirror_tasks_updated_at on public.clickup_mirror_tasks;
 create trigger set_clickup_mirror_tasks_updated_at
 before update on public.clickup_mirror_tasks
@@ -201,6 +280,9 @@ alter table public.inbox_items enable row level security;
 alter table public.library_items enable row level security;
 alter table public.weekly_reviews enable row level security;
 alter table public.content_posts enable row level security;
+alter table public.content_planning_items enable row level security;
+alter table public.content_publishing_items enable row level security;
+alter table public.content_results enable row level security;
 alter table public.clickup_mirror_tasks enable row level security;
 
 drop policy if exists "Users can view their own areas" on public.areas;
@@ -477,6 +559,81 @@ with check (
 drop policy if exists "Users can delete their own content posts" on public.content_posts;
 create policy "Users can delete their own content posts"
 on public.content_posts for delete
+to authenticated
+using (auth.uid() = user_id);
+
+drop policy if exists "Users can view their own content planning items" on public.content_planning_items;
+create policy "Users can view their own content planning items"
+on public.content_planning_items for select
+to authenticated
+using (auth.uid() = user_id);
+
+drop policy if exists "Users can insert their own content planning items" on public.content_planning_items;
+create policy "Users can insert their own content planning items"
+on public.content_planning_items for insert
+to authenticated
+with check (auth.uid() = user_id);
+
+drop policy if exists "Users can update their own content planning items" on public.content_planning_items;
+create policy "Users can update their own content planning items"
+on public.content_planning_items for update
+to authenticated
+using (auth.uid() = user_id)
+with check (auth.uid() = user_id);
+
+drop policy if exists "Users can delete their own content planning items" on public.content_planning_items;
+create policy "Users can delete their own content planning items"
+on public.content_planning_items for delete
+to authenticated
+using (auth.uid() = user_id);
+
+drop policy if exists "Users can view their own content publishing items" on public.content_publishing_items;
+create policy "Users can view their own content publishing items"
+on public.content_publishing_items for select
+to authenticated
+using (auth.uid() = user_id);
+
+drop policy if exists "Users can insert their own content publishing items" on public.content_publishing_items;
+create policy "Users can insert their own content publishing items"
+on public.content_publishing_items for insert
+to authenticated
+with check (auth.uid() = user_id);
+
+drop policy if exists "Users can update their own content publishing items" on public.content_publishing_items;
+create policy "Users can update their own content publishing items"
+on public.content_publishing_items for update
+to authenticated
+using (auth.uid() = user_id)
+with check (auth.uid() = user_id);
+
+drop policy if exists "Users can delete their own content publishing items" on public.content_publishing_items;
+create policy "Users can delete their own content publishing items"
+on public.content_publishing_items for delete
+to authenticated
+using (auth.uid() = user_id);
+
+drop policy if exists "Users can view their own content results" on public.content_results;
+create policy "Users can view their own content results"
+on public.content_results for select
+to authenticated
+using (auth.uid() = user_id);
+
+drop policy if exists "Users can insert their own content results" on public.content_results;
+create policy "Users can insert their own content results"
+on public.content_results for insert
+to authenticated
+with check (auth.uid() = user_id);
+
+drop policy if exists "Users can update their own content results" on public.content_results;
+create policy "Users can update their own content results"
+on public.content_results for update
+to authenticated
+using (auth.uid() = user_id)
+with check (auth.uid() = user_id);
+
+drop policy if exists "Users can delete their own content results" on public.content_results;
+create policy "Users can delete their own content results"
+on public.content_results for delete
 to authenticated
 using (auth.uid() = user_id);
 

@@ -2,17 +2,18 @@
 
 import { useEffect, useMemo, useState } from "react"
 import {
-  CheckCircle2,
+  BarChart3,
+  CalendarDays,
   ChevronLeft,
   ChevronRight,
-  Columns3,
-  Pencil,
+  CheckCircle2,
+  FileUp,
+  LinkIcon,
   Plus,
-  RotateCcw,
   Table2,
   Trash2,
-  X,
 } from "lucide-react"
+
 import { PageHeader } from "@/components/page-header"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -26,40 +27,83 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
 import {
-  createContentPost,
-  deleteContentPost,
-  listAreas,
-  listContentPosts,
-  listProjects,
-  updateContentPost,
+  createContentPlanningItem,
+  createContentPublishingItem,
+  createContentResultItem,
+  deleteContentPlanningItem,
+  deleteContentPublishingItem,
+  deleteContentResultItem,
+  listContentPlanningItems,
+  listContentPublishingItems,
+  listContentResultItems,
+  updateContentPublishingItem,
+} from "@/lib/supabase/data"
+import type {
+  CreateContentPlanningItemInput,
+  CreateContentPublishingItemInput,
+  CreateContentResultItemInput,
 } from "@/lib/supabase/data"
 import {
-  contentPostStatuses,
-  type Area,
-  type ContentPost,
-  type ContentPostStatus,
-  type Project,
+  contentBrands,
+  contentPlanningStatuses,
+  contentPublishingStatuses,
+  type ContentBrand,
+  type ContentPlanningItem,
+  type ContentPlanningStatus,
+  type ContentPublishingItem,
+  type ContentPublishingStatus,
+  type ContentResultItem,
 } from "@/lib/types"
 
 const ALL = "all"
-const NONE = "none"
-const DEFAULT_CHANNELS = ["Instagram", "LinkedIn", "TikTok", "YouTube", "Newsletter"]
-const dayLabels = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"]
+const DEFAULT_CHANNELS = ["Instagram", "Facebook", "TikTok", "LinkedIn", "Newsletter"]
+const PLANNING_IMPORT_COLUMNS = [
+  "brand",
+  "week_label",
+  "target_date",
+  "product_line",
+  "goal",
+  "format",
+  "message_angle",
+  "cta",
+  "channel",
+  "responsible",
+  "planning_status",
+  "notes",
+]
+const PUBLISHING_IMPORT_COLUMNS = [
+  "brand",
+  "publish_date",
+  "publish_time",
+  "product_line",
+  "channel",
+  "final_copy",
+  "asset_url",
+  "publishing_status",
+  "notes",
+]
+const RESULTS_IMPORT_COLUMNS = [
+  "brand",
+  "week_label",
+  "publish_date",
+  "product_line",
+  "reach",
+  "impressions",
+  "notes",
+]
 
-type PlannerView = "table" | "week"
+type PlannerTab = "planning" | "publishing" | "results"
 
-type PlannerFormState = {
-  title: string
-  description: string
-  publishDate: string
-  channel: string
-  status: ContentPostStatus
-  projectId: string
-  areaId: string
-  notes: string
-}
+type PlanningFormState = Omit<ContentPlanningItem, "id" | "createdAt" | "updatedAt">
+type PublishingFormState = Omit<ContentPublishingItem, "id" | "createdAt" | "updatedAt">
+type ResultFormState = Omit<ContentResultItem, "id" | "createdAt" | "updatedAt">
+type ImportFeedback = { tone: "success" | "error"; message: string }
+type ParsedImport = { headers: string[]; rows: Record<string, string>[] }
+type ImportParseResult<T> = { rows: T[]; errors: string[] }
+type RowParseResult<T> = { row: T; error?: never } | { error: string; row?: never }
 
 function toDateValue(date: Date) {
   const year = date.getFullYear()
@@ -69,8 +113,9 @@ function toDateValue(date: Date) {
   return `${year}-${month}-${day}`
 }
 
-function getTodayDateValue() {
-  return toDateValue(new Date())
+function parseDateValue(value: string) {
+  const [year, month, day] = value.split("-").map(Number)
+  return new Date(year, month - 1, day)
 }
 
 function getWeekStart(date: Date) {
@@ -85,455 +130,590 @@ function getWeekStart(date: Date) {
 }
 
 function addDays(date: Date, days: number) {
-  const nextDate = new Date(date)
+  const next = new Date(date)
+  next.setDate(next.getDate() + days)
+  next.setHours(0, 0, 0, 0)
 
-  nextDate.setDate(nextDate.getDate() + days)
-  nextDate.setHours(0, 0, 0, 0)
-
-  return nextDate
+  return next
 }
 
 function getWeekRange(start: Date) {
-  const end = new Date(start)
-  end.setDate(end.getDate() + 7)
-
-  return {
-    start: toDateValue(start),
-    end: toDateValue(end),
-  }
+  const end = addDays(start, 7)
+  return { start: toDateValue(start), end: toDateValue(end) }
 }
 
 function formatDate(value: string) {
   if (!value) return "Sin fecha"
 
-  const [year, month, day] = value.split("-").map(Number)
   return new Intl.DateTimeFormat("es", {
     day: "2-digit",
     month: "short",
     year: "numeric",
-  }).format(new Date(year, month - 1, day))
+  }).format(parseDateValue(value))
 }
 
-function formatWeekRange(range: { start: string; end: string }) {
-  return `${formatDate(range.start)} - ${formatDate(toDateValue(addDays(parseDateValue(range.end), -1)))}`
+function formatDayHeading(value: string) {
+  const formatted = new Intl.DateTimeFormat("es", {
+    weekday: "long",
+    day: "2-digit",
+    month: "short",
+  }).format(parseDateValue(value))
+
+  return formatted.charAt(0).toUpperCase() + formatted.slice(1)
 }
 
-function parseDateValue(value: string) {
-  const [year, month, day] = value.split("-").map(Number)
-
-  return new Date(year, month - 1, day)
+function getWeekLabel(dateValue = toDateValue(new Date())) {
+  const start = getWeekStart(parseDateValue(dateValue))
+  return `Semana ${formatDate(toDateValue(start))}`
 }
 
-function fromPost(post?: ContentPost): PlannerFormState {
+function getCurrentWeekLabel() {
+  return getWeekLabel(toDateValue(new Date()))
+}
+
+function statusClass(status: string) {
+  if (status.includes("publicado") || status.includes("listo")) {
+    return "border-transparent bg-primary text-primary-foreground"
+  }
+  if (status.includes("programado") || status.includes("copy")) {
+    return "border-transparent bg-secondary text-foreground"
+  }
+  if (status.includes("diseño")) return "border-sky-500/30 text-sky-500"
+  return "border-border text-muted-foreground"
+}
+
+function emptyPlanningForm(): PlanningFormState {
+  const today = toDateValue(new Date())
   return {
-    title: post?.title ?? "",
-    description: post?.description ?? "",
-    publishDate: post?.publishDate ?? getTodayDateValue(),
-    channel: post?.channel ?? DEFAULT_CHANNELS[0],
-    status: post?.status ?? "Idea",
-    projectId: post?.projectId ?? "",
-    areaId: post?.areaId ?? "",
-    notes: post?.notes ?? "",
+    brand: "Rey del Abasto",
+    weekLabel: getWeekLabel(today),
+    targetDate: today,
+    productLine: "",
+    goal: "",
+    format: "",
+    messageAngle: "",
+    cta: "",
+    channel: DEFAULT_CHANNELS[0],
+    responsible: "",
+    planningStatus: "pendiente de producción",
+    notes: "",
   }
 }
 
-function statusBadgeClass(status: ContentPostStatus) {
-  if (status === "Publicado") return "border-transparent bg-primary text-primary-foreground"
-  if (status === "Programado") return "border-transparent bg-secondary text-foreground"
-  if (status === "Cancelado") return "border-destructive/30 text-destructive"
-  if (status === "Diseñado") return "border-transparent bg-muted text-foreground"
-  if (status === "Pendiente") return "border-border text-muted-foreground"
-
-  return "border-dashed text-muted-foreground"
+function emptyPublishingForm(): PublishingFormState {
+  const today = toDateValue(new Date())
+  return {
+    planningItemId: "",
+    brand: "Rey del Abasto",
+    publishDate: today,
+    publishTime: "",
+    productLine: "",
+    channel: DEFAULT_CHANNELS[0],
+    finalCopy: "",
+    assetUrl: "",
+    publishingStatus: "pendiente",
+    notes: "",
+  }
 }
 
-function getTableEmptyMessage({
-  hasPosts,
-  tableCurrentWeekOnly,
-}: {
-  hasPosts: boolean
-  tableCurrentWeekOnly: boolean
-}) {
-  if (!hasPosts) return "No hay publicaciones todavía. Crea la primera para empezar."
-  if (tableCurrentWeekOnly) return "No hay publicaciones esta semana con los filtros actuales."
-
-  return "No hay publicaciones que coincidan con los filtros."
+function emptyResultForm(): ResultFormState {
+  const today = toDateValue(new Date())
+  return {
+    publishingItemId: "",
+    brand: "Rey del Abasto",
+    weekLabel: getWeekLabel(today),
+    publishDate: today,
+    productLine: "",
+    reach: 0,
+    impressions: 0,
+    notes: "",
+  }
 }
 
-function ContentPostListCard({
-  post,
-  projectName,
-  areaName,
-  pendingPostId,
-  onMarkPublished,
-  onEdit,
-  onDelete,
-}: {
-  post: ContentPost
-  projectName: (id: string) => string
-  areaName: (id: string) => string
-  pendingPostId: string | null
-  onMarkPublished: (post: ContentPost) => void
-  onEdit: (id: string) => void
-  onDelete: (id: string) => void
-}) {
+function Metric({ label, value }: { label: string; value: number }) {
   return (
-    <Card>
-      <CardContent className="p-4">
-        <div className="grid gap-3 lg:grid-cols-[1.2fr_110px_120px_140px_1fr_auto] lg:items-center">
-          <div className="min-w-0">
-            <p className="truncate text-sm font-medium">{post.title}</p>
-            <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">
-              {post.description || "Sin descripción."}
-            </p>
-          </div>
-          <span className="text-sm tabular-nums">{formatDate(post.publishDate)}</span>
-          <Badge variant="outline" className="w-fit border-transparent bg-secondary font-normal">
-            Canal: {post.channel || "Sin canal"}
-          </Badge>
-          <Badge variant="outline" className={`w-fit ${statusBadgeClass(post.status)}`}>
-            {post.status}
-          </Badge>
-          <div className="min-w-0 text-xs text-muted-foreground">
-            <p className="truncate">{projectName(post.projectId)}</p>
-            <p className="truncate">{areaName(post.areaId)}</p>
-          </div>
-          <div className="flex flex-wrap justify-end gap-2">
-            {post.status !== "Publicado" ? (
-              <Button
-                size="sm"
-                onClick={() => onMarkPublished(post)}
-                disabled={pendingPostId === post.id}
-                className="h-7 gap-1 px-2 text-xs"
-              >
-                <CheckCircle2 className="size-3" />
-                Publicado
-              </Button>
-            ) : null}
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => onEdit(post.id)}
-              className="h-7 gap-1 px-2 text-xs"
-            >
-              <Pencil className="size-3" />
-              Editar
-            </Button>
-            <Button
-              size="sm"
-              variant="ghost"
-              onClick={() => onDelete(post.id)}
-              className="h-7 gap-1 px-2 text-xs text-destructive"
-            >
-              <Trash2 className="size-3" />
-              Eliminar
-            </Button>
-          </div>
-        </div>
-        {post.notes ? (
-          <p className="mt-3 rounded-md bg-secondary/40 px-3 py-2 text-xs text-muted-foreground">
-            {post.notes}
-          </p>
-        ) : null}
-      </CardContent>
-    </Card>
-  )
-}
-
-function WeeklyPostCard({
-  post,
-  projectName,
-  pendingPostId,
-  onMarkPublished,
-  onEdit,
-}: {
-  post: ContentPost
-  projectName: (id: string) => string
-  pendingPostId: string | null
-  onMarkPublished: (post: ContentPost) => void
-  onEdit: (id: string) => void
-}) {
-  return (
-    <div className="rounded-md border border-border bg-card p-2">
-      <p className="line-clamp-2 text-sm font-medium">{post.title}</p>
-      <div className="mt-2 flex flex-wrap gap-1.5">
-        <Badge
-          variant="outline"
-          className="border-transparent bg-secondary text-[11px] font-normal"
-        >
-          {post.channel || "Sin canal"}
-        </Badge>
-        <Badge variant="outline" className={`text-[11px] ${statusBadgeClass(post.status)}`}>
-          {post.status}
-        </Badge>
-      </div>
-      {post.projectId ? (
-        <p className="mt-2 truncate text-xs text-muted-foreground">
-          {projectName(post.projectId)}
-        </p>
-      ) : null}
-      <div className="mt-2 flex flex-wrap gap-1.5">
-        {post.status !== "Publicado" ? (
-          <Button
-            size="sm"
-            onClick={() => onMarkPublished(post)}
-            disabled={pendingPostId === post.id}
-            className="h-7 gap-1 px-2 text-xs"
-          >
-            <CheckCircle2 className="size-3" />
-            Publicado
-          </Button>
-        ) : null}
-        <Button
-          size="sm"
-          variant="outline"
-          onClick={() => onEdit(post.id)}
-          className="h-7 gap-1 px-2 text-xs"
-        >
-          <Pencil className="size-3" />
-          Editar
-        </Button>
-      </div>
+    <div className="rounded-lg border border-border bg-card p-3">
+      <p className="text-xs text-muted-foreground">{label}</p>
+      <p className="mt-1 text-xl font-semibold tabular-nums">{value}</p>
     </div>
   )
 }
 
-function ContentPostForm({
-  initial,
-  areas,
-  projects,
-  onSubmit,
-  onCancel,
-}: {
-  initial?: ContentPost
-  areas: Area[]
-  projects: Project[]
-  onSubmit: (input: Omit<ContentPost, "id" | "createdAt" | "updatedAt">) => void | Promise<void>
-  onCancel?: () => void
-}) {
-  const [form, setForm] = useState<PlannerFormState>(() => fromPost(initial))
-  const [isSubmitting, setIsSubmitting] = useState(false)
+function normalizeImportKey(value: string) {
+  return value
+    .trim()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "")
+}
 
-  const submit = async () => {
-    const title = form.title.trim()
-    const channel = form.channel.trim()
-    if (!title || !form.publishDate || !channel) return
+function normalizeCell(value: string | undefined) {
+  return (value ?? "").trim()
+}
 
-    setIsSubmitting(true)
-    try {
-      await onSubmit({
-        title,
-        description: form.description.trim(),
-        publishDate: form.publishDate,
-        channel,
-        status: form.status,
-        projectId: form.projectId,
-        areaId: form.areaId,
-        notes: form.notes.trim(),
-      })
-      if (!initial) setForm(fromPost())
-    } catch {
-      return
-    } finally {
-      setIsSubmitting(false)
+function normalizeDateCell(value: string) {
+  const nextValue = normalizeCell(value)
+  if (!nextValue) return ""
+  if (/^\d{4}-\d{2}-\d{2}$/.test(nextValue)) return nextValue
+
+  const slashMatch = nextValue.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/)
+  if (slashMatch) {
+    const day = Number(slashMatch[1])
+    const month = Number(slashMatch[2])
+    const rawYear = Number(slashMatch[3])
+    const year = rawYear < 100 ? 2000 + rawYear : rawYear
+
+    if (day >= 1 && day <= 31 && month >= 1 && month <= 12) {
+      return toDateValue(new Date(year, month - 1, day))
     }
   }
 
+  const serial = Number(nextValue)
+  if (Number.isFinite(serial) && serial > 20000 && serial < 80000) {
+    const excelEpoch = Date.UTC(1899, 11, 30)
+    return toDateValue(new Date(excelEpoch + serial * 86400000))
+  }
+
+  return nextValue
+}
+
+function normalizeIntegerCell(value: string) {
+  const nextValue = normalizeCell(value)
+  if (!nextValue) return 0
+
+  const compact = nextValue.replace(/\s/g, "")
+  const normalized =
+    compact.includes(",") && /^\d+,\d{3}$/.test(compact)
+      ? compact.replace(",", "")
+      : compact.replace(/\./g, "").replace(",", ".")
+  const parsed = Number.parseFloat(normalized)
+
+  return Number.isFinite(parsed) ? Math.max(0, Math.round(parsed)) : 0
+}
+
+function normalizeBrandCell(value: string): ContentBrand {
+  const normalized = normalizeImportKey(value)
+  const brand = contentBrands.find((item) => normalizeImportKey(item) === normalized)
+
+  return brand ?? "Rey del Abasto"
+}
+
+function normalizePlanningStatusCell(value: string) {
+  const normalized = normalizeImportKey(value)
+  return contentPlanningStatuses.find((status) => normalizeImportKey(status) === normalized)
+}
+
+function normalizePublishingStatusCell(value: string) {
+  const normalized = normalizeImportKey(value)
+  return contentPublishingStatuses.find((status) => normalizeImportKey(status) === normalized)
+}
+
+function parseCsvMatrix(text: string) {
+  const rows: string[][] = []
+  let row: string[] = []
+  let cell = ""
+  let inQuotes = false
+
+  for (let index = 0; index < text.length; index += 1) {
+    const char = text[index]
+    const nextChar = text[index + 1]
+
+    if (char === '"' && inQuotes && nextChar === '"') {
+      cell += '"'
+      index += 1
+      continue
+    }
+
+    if (char === '"') {
+      inQuotes = !inQuotes
+      continue
+    }
+
+    if (char === "," && !inQuotes) {
+      row.push(cell)
+      cell = ""
+      continue
+    }
+
+    if ((char === "\n" || char === "\r") && !inQuotes) {
+      if (char === "\r" && nextChar === "\n") index += 1
+      row.push(cell)
+      if (row.some((value) => value.trim())) rows.push(row)
+      row = []
+      cell = ""
+      continue
+    }
+
+    cell += char
+  }
+
+  row.push(cell)
+  if (row.some((value) => value.trim())) rows.push(row)
+
+  return rows
+}
+
+function matrixToParsedRows(matrix: string[][]): ParsedImport {
+  const [headerRow, ...dataRows] = matrix
+  if (!headerRow) return { headers: [], rows: [] }
+
+  const headers = headerRow.map((header) => normalizeImportKey(header))
+  const rows = dataRows
+    .filter((row) => row.some((value) => normalizeCell(value)))
+    .map((row) =>
+      headers.reduce<Record<string, string>>((nextRow, header, index) => {
+        if (header) nextRow[header] = normalizeCell(row[index])
+        return nextRow
+      }, {}),
+    )
+
+  return { headers, rows }
+}
+
+async function inflateZipEntry(bytes: Uint8Array, method: number) {
+  if (method === 0) return bytes
+  if (method !== 8) throw new Error("El XLSX usa un método de compresión no soportado.")
+
+  if (!("DecompressionStream" in globalThis)) {
+    throw new Error("Este navegador no puede leer XLSX directamente.")
+  }
+
+  const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream("deflate-raw"))
+  return new Uint8Array(await new Response(stream).arrayBuffer())
+}
+
+async function unzipXlsxEntries(buffer: ArrayBuffer) {
+  const view = new DataView(buffer)
+  const bytes = new Uint8Array(buffer)
+  const entries = new Map<string, string>()
+  let endOfCentralDirectory = -1
+
+  for (let offset = bytes.length - 22; offset >= Math.max(0, bytes.length - 66000); offset -= 1) {
+    if (view.getUint32(offset, true) === 0x06054b50) {
+      endOfCentralDirectory = offset
+      break
+    }
+  }
+
+  if (endOfCentralDirectory < 0) throw new Error("El archivo XLSX no parece válido.")
+
+  let directoryOffset = view.getUint32(endOfCentralDirectory + 16, true)
+  const decoder = new TextDecoder()
+
+  while (directoryOffset < bytes.length && view.getUint32(directoryOffset, true) === 0x02014b50) {
+    const method = view.getUint16(directoryOffset + 10, true)
+    const compressedSize = view.getUint32(directoryOffset + 20, true)
+    const fileNameLength = view.getUint16(directoryOffset + 28, true)
+    const extraLength = view.getUint16(directoryOffset + 30, true)
+    const commentLength = view.getUint16(directoryOffset + 32, true)
+    const localHeaderOffset = view.getUint32(directoryOffset + 42, true)
+    const fileName = decoder.decode(bytes.slice(directoryOffset + 46, directoryOffset + 46 + fileNameLength))
+
+    if (view.getUint32(localHeaderOffset, true) === 0x04034b50) {
+      const localFileNameLength = view.getUint16(localHeaderOffset + 26, true)
+      const localExtraLength = view.getUint16(localHeaderOffset + 28, true)
+      const dataStart = localHeaderOffset + 30 + localFileNameLength + localExtraLength
+      const compressed = bytes.slice(dataStart, dataStart + compressedSize)
+      const inflated = await inflateZipEntry(compressed, method)
+      entries.set(fileName, decoder.decode(inflated))
+    }
+
+    directoryOffset += 46 + fileNameLength + extraLength + commentLength
+  }
+
+  return entries
+}
+
+function parseXml(text: string) {
+  return new DOMParser().parseFromString(text, "application/xml")
+}
+
+function getFirstWorksheetPath(entries: Map<string, string>) {
+  const workbook = entries.get("xl/workbook.xml")
+  const rels = entries.get("xl/_rels/workbook.xml.rels")
+  if (!workbook || !rels) return "xl/worksheets/sheet1.xml"
+
+  const workbookDoc = parseXml(workbook)
+  const firstSheet = workbookDoc.getElementsByTagName("sheet")[0]
+  const relationshipId = firstSheet?.getAttribute("r:id")
+  if (!relationshipId) return "xl/worksheets/sheet1.xml"
+
+  const relsDoc = parseXml(rels)
+  const relationships = Array.from(relsDoc.getElementsByTagName("Relationship"))
+  const target = relationships.find((relationship) => relationship.getAttribute("Id") === relationshipId)?.getAttribute("Target")
+  if (!target) return "xl/worksheets/sheet1.xml"
+
+  return target.startsWith("/") ? target.slice(1) : `xl/${target.replace(/^\/?xl\//, "")}`
+}
+
+function parseSharedStrings(entries: Map<string, string>) {
+  const sharedStrings = entries.get("xl/sharedStrings.xml")
+  if (!sharedStrings) return []
+
+  const doc = parseXml(sharedStrings)
+  return Array.from(doc.getElementsByTagName("si")).map((item) =>
+    Array.from(item.getElementsByTagName("t"))
+      .map((node) => node.textContent ?? "")
+      .join(""),
+  )
+}
+
+function getColumnIndex(cellReference: string) {
+  const letters = cellReference.match(/[A-Z]+/i)?.[0] ?? ""
+  return letters
+    .toUpperCase()
+    .split("")
+    .reduce((total, letter) => total * 26 + letter.charCodeAt(0) - 64, 0) - 1
+}
+
+async function parseXlsxFile(file: File) {
+  const entries = await unzipXlsxEntries(await file.arrayBuffer())
+  const worksheet = entries.get(getFirstWorksheetPath(entries))
+  if (!worksheet) throw new Error("No se encontró la primera hoja del XLSX.")
+
+  const sharedStrings = parseSharedStrings(entries)
+  const doc = parseXml(worksheet)
+
+  return Array.from(doc.getElementsByTagName("row"))
+    .map((row) => {
+      const cells: string[] = []
+      Array.from(row.getElementsByTagName("c")).forEach((cell) => {
+        const columnIndex = getColumnIndex(cell.getAttribute("r") ?? "")
+        const type = cell.getAttribute("t")
+        const rawValue = cell.getElementsByTagName("v")[0]?.textContent ?? ""
+        const inlineValue = Array.from(cell.getElementsByTagName("t"))
+          .map((node) => node.textContent ?? "")
+          .join("")
+
+        cells[columnIndex >= 0 ? columnIndex : cells.length] =
+          type === "s" ? sharedStrings[Number(rawValue)] ?? "" : type === "inlineStr" ? inlineValue : rawValue
+      })
+
+      return cells
+    })
+    .filter((row) => row.some((value) => normalizeCell(value)))
+}
+
+async function readImportFile(file: File, requiredColumns: string[]) {
+  const extension = file.name.split(".").pop()?.toLowerCase()
+  const matrix =
+    extension === "csv"
+      ? parseCsvMatrix(await file.text())
+      : extension === "xlsx"
+        ? await parseXlsxFile(file)
+        : null
+
+  if (!matrix) {
+    throw new Error("Formato no soportado. Usá un archivo .csv o .xlsx.")
+  }
+
+  const parsed = matrixToParsedRows(matrix)
+  const missingColumns = requiredColumns.filter((column) => !parsed.headers.includes(column))
+  if (missingColumns.length > 0) {
+    throw new Error(`Faltan columnas obligatorias: ${missingColumns.join(", ")}.`)
+  }
+
+  return parsed.rows
+}
+
+function parsePlanningRow(
+  row: Record<string, string>,
+  index: number,
+): RowParseResult<CreateContentPlanningItemInput> {
+  const planningStatus = normalizePlanningStatusCell(row.planning_status)
+  const targetDate = normalizeDateCell(row.target_date)
+  const productLine = normalizeCell(row.product_line)
+
+  if (!productLine) return { error: `Fila ${index}: falta product_line.` }
+  if (!targetDate) return { error: `Fila ${index}: falta target_date.` }
+  if (!planningStatus) return { error: `Fila ${index}: planning_status inválido.` }
+
+  return {
+    row: {
+      brand: normalizeBrandCell(row.brand),
+      weekLabel: normalizeCell(row.week_label) || getWeekLabel(targetDate),
+      targetDate,
+      productLine,
+      goal: normalizeCell(row.goal),
+      format: normalizeCell(row.format),
+      messageAngle: normalizeCell(row.message_angle),
+      cta: normalizeCell(row.cta),
+      channel: normalizeCell(row.channel) || DEFAULT_CHANNELS[0],
+      responsible: normalizeCell(row.responsible),
+      planningStatus,
+      notes: normalizeCell(row.notes),
+    } satisfies CreateContentPlanningItemInput,
+  }
+}
+
+function parsePublishingRow(
+  row: Record<string, string>,
+  index: number,
+): RowParseResult<CreateContentPublishingItemInput> {
+  const publishingStatus = normalizePublishingStatusCell(row.publishing_status)
+  const publishDate = normalizeDateCell(row.publish_date)
+  const productLine = normalizeCell(row.product_line)
+
+  if (!productLine) return { error: `Fila ${index}: falta product_line.` }
+  if (!publishDate) return { error: `Fila ${index}: falta publish_date.` }
+  if (!publishingStatus) return { error: `Fila ${index}: publishing_status inválido.` }
+
+  return {
+    row: {
+      planningItemId: "",
+      brand: normalizeBrandCell(row.brand),
+      publishDate,
+      publishTime: normalizeCell(row.publish_time),
+      productLine,
+      channel: normalizeCell(row.channel) || DEFAULT_CHANNELS[0],
+      finalCopy: normalizeCell(row.final_copy),
+      assetUrl: normalizeCell(row.asset_url),
+      publishingStatus,
+      notes: normalizeCell(row.notes),
+    } satisfies CreateContentPublishingItemInput,
+  }
+}
+
+function parseResultRow(
+  row: Record<string, string>,
+  index: number,
+): RowParseResult<CreateContentResultItemInput> {
+  const publishDate = normalizeDateCell(row.publish_date)
+  const productLine = normalizeCell(row.product_line)
+
+  if (!productLine) return { error: `Fila ${index}: falta product_line.` }
+  if (!publishDate) return { error: `Fila ${index}: falta publish_date.` }
+
+  return {
+    row: {
+      publishingItemId: "",
+      brand: normalizeBrandCell(row.brand),
+      weekLabel: normalizeCell(row.week_label) || getWeekLabel(publishDate),
+      publishDate,
+      productLine,
+      reach: normalizeIntegerCell(row.reach),
+      impressions: normalizeIntegerCell(row.impressions),
+      notes: normalizeCell(row.notes),
+    } satisfies CreateContentResultItemInput,
+  }
+}
+
+async function parsePlanningImport(file: File): Promise<ImportParseResult<CreateContentPlanningItemInput>> {
+  const rows = await readImportFile(file, PLANNING_IMPORT_COLUMNS)
+  const parsedRows: CreateContentPlanningItemInput[] = []
+  const errors: string[] = []
+
+  rows.forEach((row, index) => {
+    const result = parsePlanningRow(row, index + 2)
+    if (result.error) errors.push(result.error)
+    else if (result.row) parsedRows.push(result.row)
+  })
+
+  return { rows: parsedRows, errors }
+}
+
+async function parsePublishingImport(file: File): Promise<ImportParseResult<CreateContentPublishingItemInput>> {
+  const rows = await readImportFile(file, PUBLISHING_IMPORT_COLUMNS)
+  const parsedRows: CreateContentPublishingItemInput[] = []
+  const errors: string[] = []
+
+  rows.forEach((row, index) => {
+    const result = parsePublishingRow(row, index + 2)
+    if (result.error) errors.push(result.error)
+    else if (result.row) parsedRows.push(result.row)
+  })
+
+  return { rows: parsedRows, errors }
+}
+
+async function parseResultsImport(file: File): Promise<ImportParseResult<CreateContentResultItemInput>> {
+  const rows = await readImportFile(file, RESULTS_IMPORT_COLUMNS)
+  const parsedRows: CreateContentResultItemInput[] = []
+  const errors: string[] = []
+
+  rows.forEach((row, index) => {
+    const result = parseResultRow(row, index + 2)
+    if (result.error) errors.push(result.error)
+    else if (result.row) parsedRows.push(result.row)
+  })
+
+  return { rows: parsedRows, errors }
+}
+
+function buildImportFeedback(label: string, importedCount: number, errors: string[]) {
+  const failedText = errors.length ? ` Fallidas: ${errors.length}. ${errors.slice(0, 3).join(" ")}` : ""
+
+  return `${label}: ${importedCount} filas importadas.${failedText}`
+}
+
+function ImportButton({
+  label,
+  onImport,
+}: {
+  label: string
+  onImport: (file: File) => Promise<void>
+}) {
+  const inputId = `import-${label.toLowerCase().replace(/\s+/g, "-")}`
+
   return (
-    <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-      <div className="flex flex-col gap-1.5 md:col-span-2">
-        <Label htmlFor={initial ? `post-title-${initial.id}` : "new-post-title"}>
-          Publicación
-        </Label>
-        <Input
-          id={initial ? `post-title-${initial.id}` : "new-post-title"}
-          value={form.title}
-          onChange={(event) =>
-            setForm((current) => ({ ...current, title: event.target.value }))
-          }
-          placeholder="Título de la publicación"
-        />
-      </div>
-
-      <div className="flex flex-col gap-1.5">
-        <Label htmlFor={initial ? `post-date-${initial.id}` : "new-post-date"}>
-          Fecha
-        </Label>
-        <Input
-          id={initial ? `post-date-${initial.id}` : "new-post-date"}
-          type="date"
-          value={form.publishDate}
-          onChange={(event) =>
-            setForm((current) => ({ ...current, publishDate: event.target.value }))
-          }
-        />
-      </div>
-
-      <div className="flex flex-col gap-1.5">
-        <Label htmlFor={initial ? `post-channel-${initial.id}` : "new-post-channel"}>
-          Canal
-        </Label>
-        <Input
-          id={initial ? `post-channel-${initial.id}` : "new-post-channel"}
-          value={form.channel}
-          onChange={(event) =>
-            setForm((current) => ({ ...current, channel: event.target.value }))
-          }
-          placeholder="Instagram, LinkedIn..."
-        />
-      </div>
-
-      <div className="flex flex-col gap-1.5">
-        <Label>Estado</Label>
-        <Select
-          value={form.status}
-          onValueChange={(value) =>
-            setForm((current) => ({ ...current, status: value as ContentPostStatus }))
-          }
-        >
-          <SelectTrigger className="w-full">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {contentPostStatuses.map((status) => (
-              <SelectItem key={status} value={status}>
-                {status}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
-
-      <div className="flex flex-col gap-1.5">
-        <Label>Proyecto</Label>
-        <Select
-          value={form.projectId || NONE}
-          onValueChange={(value) =>
-            setForm((current) => ({
-              ...current,
-              projectId: value === NONE ? "" : value ?? current.projectId,
-            }))
-          }
-        >
-          <SelectTrigger className="w-full">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value={NONE}>Sin proyecto</SelectItem>
-            {projects.map((project) => (
-              <SelectItem key={project.id} value={project.id}>
-                {project.name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
-
-      <div className="flex flex-col gap-1.5">
-        <Label>Área</Label>
-        <Select
-          value={form.areaId || NONE}
-          onValueChange={(value) =>
-            setForm((current) => ({
-              ...current,
-              areaId: value === NONE ? "" : value ?? current.areaId,
-            }))
-          }
-        >
-          <SelectTrigger className="w-full">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value={NONE}>Sin área</SelectItem>
-            {areas.map((area) => (
-              <SelectItem key={area.id} value={area.id}>
-                {area.name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
-
-      <div className="flex flex-col gap-1.5 md:col-span-2">
-        <Label htmlFor={initial ? `post-description-${initial.id}` : "new-post-description"}>
-          Descripción
-        </Label>
-        <Textarea
-          id={initial ? `post-description-${initial.id}` : "new-post-description"}
-          value={form.description}
-          onChange={(event) =>
-            setForm((current) => ({ ...current, description: event.target.value }))
-          }
-          placeholder="Idea base o ángulo de la publicación"
-          rows={2}
-        />
-      </div>
-
-      <div className="flex flex-col gap-1.5 md:col-span-2 xl:col-span-4">
-        <Label htmlFor={initial ? `post-notes-${initial.id}` : "new-post-notes"}>
-          Notas
-        </Label>
-        <Textarea
-          id={initial ? `post-notes-${initial.id}` : "new-post-notes"}
-          value={form.notes}
-          onChange={(event) =>
-            setForm((current) => ({ ...current, notes: event.target.value }))
-          }
-          placeholder="Notas internas opcionales"
-          rows={2}
-        />
-      </div>
-
-      <div className="flex items-end gap-2 md:col-span-2 xl:col-span-4">
-        <Button
-          onClick={submit}
-          size="sm"
-          className="gap-1"
-          disabled={isSubmitting || !form.title.trim() || !form.channel.trim()}
-        >
-          {initial ? <Pencil className="size-4" /> : <Plus className="size-4" />}
-          {isSubmitting ? "Guardando..." : initial ? "Guardar" : "Crear"}
-        </Button>
-        {onCancel ? (
-          <Button onClick={onCancel} variant="ghost" size="sm" className="gap-1">
-            <X className="size-4" />
-            Cancelar
-          </Button>
-        ) : null}
-      </div>
+    <div>
+      <Input
+        id={inputId}
+        type="file"
+        accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        className="hidden"
+        onChange={async (event) => {
+          const file = event.target.files?.[0]
+          if (!file) return
+          await onImport(file)
+          event.target.value = ""
+        }}
+      />
+      <label
+        htmlFor={inputId}
+        className="inline-flex h-8 cursor-pointer items-center justify-center gap-2 rounded-md border border-input bg-background px-3 text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground"
+      >
+        <FileUp className="size-4" />
+        {label}
+      </label>
     </div>
   )
 }
 
 export default function ContentPlannerPage() {
-  const [posts, setPosts] = useState<ContentPost[]>([])
-  const [projects, setProjects] = useState<Project[]>([])
-  const [areas, setAreas] = useState<Area[]>([])
-  const [editing, setEditing] = useState<string | null>(null)
-  const [view, setView] = useState<PlannerView>("table")
-  const [tableCurrentWeekOnly, setTableCurrentWeekOnly] = useState(false)
-  const [visibleWeekStart, setVisibleWeekStart] = useState(() => getWeekStart(new Date()))
-  const [statusFilter, setStatusFilter] = useState<typeof ALL | ContentPostStatus>(ALL)
+  const [planningItems, setPlanningItems] = useState<ContentPlanningItem[]>([])
+  const [publishingItems, setPublishingItems] = useState<ContentPublishingItem[]>([])
+  const [resultItems, setResultItems] = useState<ContentResultItem[]>([])
+  const [activeTab, setActiveTab] = useState<PlannerTab>("planning")
+  const [brandFilter, setBrandFilter] = useState<typeof ALL | ContentBrand>(ALL)
+  const [weekFilter, setWeekFilter] = useState(getCurrentWeekLabel())
   const [channelFilter, setChannelFilter] = useState(ALL)
-  const [projectFilter, setProjectFilter] = useState(ALL)
+  const [statusFilter, setStatusFilter] = useState(ALL)
+  const [visibleWeekStart, setVisibleWeekStart] = useState(() => getWeekStart(new Date()))
+  const [planningForm, setPlanningForm] = useState<PlanningFormState>(() => emptyPlanningForm())
+  const [publishingForm, setPublishingForm] = useState<PublishingFormState>(() => emptyPublishingForm())
+  const [resultForm, setResultForm] = useState<ResultFormState>(() => emptyResultForm())
   const [isLoading, setIsLoading] = useState(true)
-  const [pendingPostId, setPendingPostId] = useState<string | null>(null)
+  const [isSaving, setIsSaving] = useState(false)
   const [error, setError] = useState("")
+  const [importFeedback, setImportFeedback] = useState<ImportFeedback | null>(null)
 
   useEffect(() => {
     let cancelled = false
 
     async function loadPlanner() {
       try {
-        const [nextPosts, nextProjects, nextAreas] = await Promise.all([
-          listContentPosts(),
-          listProjects(),
-          listAreas(),
+        const [nextPlanning, nextPublishing, nextResults] = await Promise.all([
+          listContentPlanningItems(),
+          listContentPublishingItems(),
+          listContentResultItems(),
         ])
         if (cancelled) return
-        setPosts(nextPosts)
-        setProjects(nextProjects)
-        setAreas(nextAreas)
+        setPlanningItems(nextPlanning)
+        setPublishingItems(nextPublishing)
+        setResultItems(nextResults)
       } catch (caught) {
         if (!cancelled) {
           setError(
@@ -547,378 +727,625 @@ export default function ContentPlannerPage() {
       }
     }
 
-    loadPlanner()
+    void loadPlanner()
 
     return () => {
       cancelled = true
     }
   }, [])
 
-  const currentWeekStart = useMemo(() => getWeekStart(new Date()), [])
-  const currentWeekRange = useMemo(() => getWeekRange(currentWeekStart), [currentWeekStart])
-  const visibleWeekRange = useMemo(() => getWeekRange(visibleWeekStart), [visibleWeekStart])
-  const visibleWeekDays = useMemo(
-    () =>
-      dayLabels.map((label, index) => {
-        const date = addDays(visibleWeekStart, index)
+  const weekRange = useMemo(() => getWeekRange(visibleWeekStart), [visibleWeekStart])
+  const weekOptions = useMemo(() => {
+    return Array.from(
+      new Set([
+        getCurrentWeekLabel(),
+        ...planningItems.map((item) => item.weekLabel),
+        ...resultItems.map((item) => item.weekLabel),
+      ].filter(Boolean)),
+    ).sort((a, b) => a.localeCompare(b, "es"))
+  }, [planningItems, resultItems])
 
-        return {
-          label,
-          date,
-          value: toDateValue(date),
-        }
-      }),
-    [visibleWeekStart],
-  )
   const channelOptions = useMemo(() => {
     return Array.from(
-      new Set([...DEFAULT_CHANNELS, ...posts.map((post) => post.channel).filter(Boolean)]),
-    ).sort((a, b) => a.localeCompare(b))
-  }, [posts])
+      new Set([
+        ...DEFAULT_CHANNELS,
+        ...planningItems.map((item) => item.channel),
+        ...publishingItems.map((item) => item.channel),
+      ].filter(Boolean)),
+    ).sort((a, b) => a.localeCompare(b, "es"))
+  }, [planningItems, publishingItems])
 
-  const projectName = (id: string) =>
-    projects.find((project) => project.id === id)?.name ?? "Sin proyecto"
+  const filteredPlanning = planningItems.filter((item) => {
+    const matchesBrand = brandFilter === ALL || item.brand === brandFilter
+    const matchesWeek = !weekFilter || item.weekLabel === weekFilter
+    const matchesChannel = channelFilter === ALL || item.channel === channelFilter
+    const matchesStatus = statusFilter === ALL || item.planningStatus === statusFilter
 
-  const areaName = (id: string) => areas.find((area) => area.id === id)?.name ?? "Sin área"
-
-  const baseFilteredPosts = posts.filter((post) => {
-    const matchesStatus = statusFilter === ALL || post.status === statusFilter
-    const matchesChannel = channelFilter === ALL || post.channel === channelFilter
-    const matchesProject = projectFilter === ALL || post.projectId === projectFilter
-
-    return matchesStatus && matchesChannel && matchesProject
+    return matchesBrand && matchesWeek && matchesChannel && matchesStatus
   })
 
-  const tablePosts = baseFilteredPosts.filter((post) => {
-    if (!tableCurrentWeekOnly) return true
-    return post.publishDate >= currentWeekRange.start && post.publishDate < currentWeekRange.end
+  const filteredPublishing = publishingItems.filter((item) => {
+    const matchesBrand = brandFilter === ALL || item.brand === brandFilter
+    const matchesWeek =
+      !weekFilter || getWeekLabel(item.publishDate) === weekFilter
+    const matchesChannel = channelFilter === ALL || item.channel === channelFilter
+    const matchesStatus = statusFilter === ALL || item.publishingStatus === statusFilter
+
+    return matchesBrand && matchesWeek && matchesChannel && matchesStatus
   })
 
-  const weekPosts = baseFilteredPosts.filter(
-    (post) =>
-      post.publishDate >= visibleWeekRange.start && post.publishDate < visibleWeekRange.end,
+  const filteredResults = resultItems.filter((item) => {
+    const matchesBrand = brandFilter === ALL || item.brand === brandFilter
+    const matchesWeek = !weekFilter || item.weekLabel === weekFilter
+    const matchesStatus = statusFilter === ALL
+
+    return matchesBrand && matchesWeek && matchesStatus
+  })
+
+  const weekPublishing = filteredPublishing.filter(
+    (item) => item.publishDate >= weekRange.start && item.publishDate < weekRange.end,
   )
 
-  const postsByDay = weekPosts.reduce<Record<string, ContentPost[]>>((groups, post) => {
-    groups[post.publishDate] = [...(groups[post.publishDate] ?? []), post]
-    return groups
-  }, {})
+  const publishingAgenda = Array.from(
+    weekPublishing
+      .toSorted((first, second) => {
+        const dateSort = first.publishDate.localeCompare(second.publishDate)
+        if (dateSort !== 0) return dateSort
 
-  const visiblePosts = view === "table" ? tablePosts : weekPosts
+        const timeSort = (first.publishTime || "99:99").localeCompare(second.publishTime || "99:99")
+        if (timeSort !== 0) return timeSort
 
-  const createSupabasePost = async (
-    input: Omit<ContentPost, "id" | "createdAt" | "updatedAt">,
-  ) => {
+        return first.productLine.localeCompare(second.productLine, "es")
+      })
+      .reduce<Map<string, ContentPublishingItem[]>>((groups, item) => {
+        const current = groups.get(item.publishDate) ?? []
+        groups.set(item.publishDate, [...current, item])
+        return groups
+      }, new Map()),
+  )
+
+  const summary = {
+    planning: filteredPlanning.length,
+    pending: filteredPublishing.filter((item) => item.publishingStatus === "pendiente").length,
+    scheduled: filteredPublishing.filter((item) => item.publishingStatus === "programado").length,
+    published: filteredPublishing.filter((item) => item.publishingStatus === "publicado").length,
+    reach: filteredResults.reduce((total, item) => total + item.reach, 0),
+    impressions: filteredResults.reduce((total, item) => total + item.impressions, 0),
+  }
+
+  const statusOptions =
+    activeTab === "planning"
+      ? contentPlanningStatuses
+      : activeTab === "publishing"
+        ? contentPublishingStatuses
+        : []
+
+  const createPlanning = async () => {
+    if (!planningForm.productLine.trim()) return
+    setIsSaving(true)
     setError("")
+    setImportFeedback(null)
     try {
-      const post = await createContentPost(input)
-      setPosts((current) => [...current, post])
+      const created = await createContentPlanningItem({
+        ...planningForm,
+        productLine: planningForm.productLine.trim(),
+        goal: planningForm.goal.trim(),
+        format: planningForm.format.trim(),
+        messageAngle: planningForm.messageAngle.trim(),
+        cta: planningForm.cta.trim(),
+        channel: planningForm.channel.trim(),
+        responsible: planningForm.responsible.trim(),
+        notes: planningForm.notes.trim(),
+      })
+      setPlanningItems((current) => [...current, created])
+      setPlanningForm(emptyPlanningForm())
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "No se pudo crear la planificación.")
+    } finally {
+      setIsSaving(false)
+    }
+  }
+
+  const createPublishing = async () => {
+    if (!publishingForm.productLine.trim()) return
+    setIsSaving(true)
+    setError("")
+    setImportFeedback(null)
+    try {
+      const created = await createContentPublishingItem({
+        ...publishingForm,
+        productLine: publishingForm.productLine.trim(),
+        channel: publishingForm.channel.trim(),
+        finalCopy: publishingForm.finalCopy.trim(),
+        assetUrl: publishingForm.assetUrl.trim(),
+        notes: publishingForm.notes.trim(),
+      })
+      setPublishingItems((current) => [...current, created])
+      setPublishingForm(emptyPublishingForm())
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "No se pudo crear la publicación.")
-      throw caught
-    }
-  }
-
-  const updateSupabasePost = async (
-    id: string,
-    input: Partial<Omit<ContentPost, "id" | "createdAt" | "updatedAt">>,
-  ) => {
-    setError("")
-    setPendingPostId(id)
-    try {
-      const post = await updateContentPost(id, input)
-      setPosts((current) =>
-        current.map((currentPost) => (currentPost.id === id ? post : currentPost)),
-      )
-      setEditing(null)
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "No se pudo guardar la publicación.")
-      throw caught
     } finally {
-      setPendingPostId(null)
+      setIsSaving(false)
     }
   }
 
-  const deleteSupabasePost = async (id: string) => {
-    const shouldDelete = window.confirm("¿Eliminar esta publicación?")
-    if (!shouldDelete) return
-
+  const createResult = async () => {
+    if (!resultForm.productLine.trim()) return
+    setIsSaving(true)
     setError("")
+    setImportFeedback(null)
     try {
-      await deleteContentPost(id)
-      setPosts((current) => current.filter((post) => post.id !== id))
-      if (editing === id) setEditing(null)
+      const created = await createContentResultItem({
+        ...resultForm,
+        productLine: resultForm.productLine.trim(),
+        notes: resultForm.notes.trim(),
+      })
+      setResultItems((current) => [...current, created])
+      setResultForm(emptyResultForm())
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "No se pudo eliminar la publicación.")
+      setError(caught instanceof Error ? caught.message : "No se pudo crear el resultado.")
+    } finally {
+      setIsSaving(false)
     }
   }
 
-  const markPostAsPublished = (post: ContentPost) => {
-    void updateSupabasePost(post.id, { status: "Publicado" }).catch(() => undefined)
+  const importPlanningFile = async (file: File) => {
+    setIsSaving(true)
+    setError("")
+    setImportFeedback(null)
+
+    try {
+      const parsed = await parsePlanningImport(file)
+      const createdItems: ContentPlanningItem[] = []
+      const errors = [...parsed.errors]
+
+      for (const row of parsed.rows) {
+        try {
+          createdItems.push(await createContentPlanningItem(row))
+        } catch (caught) {
+          errors.push(caught instanceof Error ? caught.message : "No se pudo importar una fila.")
+        }
+      }
+
+      if (createdItems.length > 0) {
+        setPlanningItems((current) => [...current, ...createdItems])
+      }
+
+      setImportFeedback({
+        tone: errors.length ? "error" : "success",
+        message: buildImportFeedback("Planificación", createdItems.length, errors),
+      })
+    } catch (caught) {
+      setImportFeedback({
+        tone: "error",
+        message: `Planificación: 0 filas importadas. ${
+          caught instanceof Error ? caught.message : "No se pudo importar planificación."
+        }`,
+      })
+    } finally {
+      setIsSaving(false)
+    }
   }
 
-  const goToPreviousWeek = () => {
-    setVisibleWeekStart((date) => addDays(date, -7))
+  const importPublishingFile = async (file: File) => {
+    setIsSaving(true)
+    setError("")
+    setImportFeedback(null)
+
+    try {
+      const parsed = await parsePublishingImport(file)
+      const createdItems: ContentPublishingItem[] = []
+      const errors = [...parsed.errors]
+
+      for (const row of parsed.rows) {
+        try {
+          createdItems.push(await createContentPublishingItem(row))
+        } catch (caught) {
+          errors.push(caught instanceof Error ? caught.message : "No se pudo importar una fila.")
+        }
+      }
+
+      if (createdItems.length > 0) {
+        setPublishingItems((current) => [...current, ...createdItems])
+      }
+
+      setImportFeedback({
+        tone: errors.length ? "error" : "success",
+        message: buildImportFeedback("Publicación", createdItems.length, errors),
+      })
+    } catch (caught) {
+      setImportFeedback({
+        tone: "error",
+        message: `Publicación: 0 filas importadas. ${
+          caught instanceof Error ? caught.message : "No se pudo importar publicación."
+        }`,
+      })
+    } finally {
+      setIsSaving(false)
+    }
   }
 
-  const goToCurrentWeek = () => {
-    setVisibleWeekStart(getWeekStart(new Date()))
-  }
+  const importResultsFile = async (file: File) => {
+    setIsSaving(true)
+    setError("")
+    setImportFeedback(null)
 
-  const goToNextWeek = () => {
-    setVisibleWeekStart((date) => addDays(date, 7))
-  }
+    try {
+      const parsed = await parseResultsImport(file)
+      const createdItems: ContentResultItem[] = []
+      const errors = [...parsed.errors]
 
-  const editPostFromWeek = (id: string) => {
-    setStatusFilter(ALL)
-    setChannelFilter(ALL)
-    setProjectFilter(ALL)
-    setTableCurrentWeekOnly(false)
-    setEditing(id)
-    setView("table")
+      for (const row of parsed.rows) {
+        try {
+          createdItems.push(await createContentResultItem(row))
+        } catch (caught) {
+          errors.push(caught instanceof Error ? caught.message : "No se pudo importar una fila.")
+        }
+      }
+
+      if (createdItems.length > 0) {
+        setResultItems((current) => [...current, ...createdItems])
+      }
+
+      setImportFeedback({
+        tone: errors.length ? "error" : "success",
+        message: buildImportFeedback("Resultados", createdItems.length, errors),
+      })
+    } catch (caught) {
+      setImportFeedback({
+        tone: "error",
+        message: `Resultados: 0 filas importadas. ${
+          caught instanceof Error ? caught.message : "No se pudo importar resultados."
+        }`,
+      })
+    } finally {
+      setIsSaving(false)
+    }
   }
 
   return (
     <div className="space-y-6">
       <PageHeader
         title="Content Planner"
-        description="Planifica publicaciones semanales y manuales sin automatizaciones."
+        description="Planificación, publicación y resultados semanales."
       />
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Crear publicación</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <ContentPostForm
-            areas={areas}
-            projects={projects}
-            onSubmit={createSupabasePost}
-          />
-          {error ? <p className="mt-3 text-sm text-destructive">{error}</p> : null}
-        </CardContent>
-      </Card>
-
-      {isLoading ? (
+      {error ? (
         <Card>
-          <CardContent className="py-6 text-sm text-muted-foreground">
-            Cargando Content Planner...
+          <CardContent className="py-4 text-sm text-destructive">{error}</CardContent>
+        </Card>
+      ) : null}
+
+      {importFeedback ? (
+        <Card>
+          <CardContent
+            className={`py-4 text-sm ${
+              importFeedback.tone === "error" ? "text-destructive" : "text-muted-foreground"
+            }`}
+          >
+            {importFeedback.message}
           </CardContent>
         </Card>
       ) : null}
 
-      {!isLoading ? (
-        <div className="space-y-3">
-          <div className="flex flex-wrap items-center gap-2">
-            <Button
-              size="sm"
-              variant={view === "table" ? "default" : "outline"}
-              onClick={() => setView("table")}
-              className="gap-1"
-            >
-              <Table2 className="size-4" />
-              Vista Tabla
-            </Button>
-            <Button
-              size="sm"
-              variant={view === "week" ? "default" : "outline"}
-              onClick={() => setView("week")}
-              className="gap-1"
-            >
-              <Columns3 className="size-4" />
-              Vista Semana
-            </Button>
+      <Card>
+        <CardContent className="grid gap-3 p-4 md:grid-cols-4">
+          <div className="space-y-1.5">
+            <Label>Marca</Label>
+            <Select value={brandFilter} onValueChange={(value) => setBrandFilter(value as typeof brandFilter)}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value={ALL}>Todas</SelectItem>
+                {contentBrands.map((brand) => (
+                  <SelectItem key={brand} value={brand}>{brand}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-1.5">
+            <Label>Semana</Label>
+            <Select value={weekFilter || ALL} onValueChange={(value) => setWeekFilter(value === ALL || !value ? "" : value)}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value={ALL}>Todas</SelectItem>
+                {weekOptions.map((week) => (
+                  <SelectItem key={week} value={week}>{week}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-1.5">
+            <Label>Canal</Label>
+            <Select value={channelFilter} onValueChange={(value) => setChannelFilter(value ?? ALL)}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value={ALL}>Todos</SelectItem>
+                {channelOptions.map((channel) => (
+                  <SelectItem key={channel} value={channel}>{channel}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-1.5">
+            <Label>Estado</Label>
+            <Select value={statusFilter} onValueChange={(value) => setStatusFilter(value ?? ALL)}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value={ALL}>Todos</SelectItem>
+                {statusOptions.map((status) => (
+                  <SelectItem key={status} value={status}>{status}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        </CardContent>
+      </Card>
 
-            {view === "table" ? (
-              <Button
-                size="sm"
-                variant={tableCurrentWeekOnly ? "default" : "outline"}
-                onClick={() => setTableCurrentWeekOnly((current) => !current)}
-              >
-                Semana actual
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
+        <Metric label="Planificación semana" value={summary.planning} />
+        <Metric label="Pendientes" value={summary.pending} />
+        <Metric label="Programadas" value={summary.scheduled} />
+        <Metric label="Publicadas" value={summary.published} />
+        <Metric label="Alcance total" value={summary.reach} />
+        <Metric label="Impresiones" value={summary.impressions} />
+      </div>
+
+      {isLoading ? (
+        <Card><CardContent className="py-6 text-sm text-muted-foreground">Cargando Content Planner...</CardContent></Card>
+      ) : null}
+
+      <Tabs value={activeTab} onValueChange={(value) => {
+        setActiveTab(value as PlannerTab)
+        setStatusFilter(ALL)
+      }}>
+        <TabsList>
+          <TabsTrigger value="planning">Planificación</TabsTrigger>
+          <TabsTrigger value="publishing">Publicación</TabsTrigger>
+          <TabsTrigger value="results">Resultados</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="planning" className="space-y-4">
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between">
+              <CardTitle className="text-base">Reunión del lunes</CardTitle>
+              <ImportButton label="Importar CSV/XLSX" onImport={importPlanningFile} />
+            </CardHeader>
+            <CardContent className="grid gap-3 md:grid-cols-3 xl:grid-cols-4">
+              <Select value={planningForm.brand} onValueChange={(value) => setPlanningForm((current) => ({ ...current, brand: value as ContentBrand }))}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>{contentBrands.map((brand) => <SelectItem key={brand} value={brand}>{brand}</SelectItem>)}</SelectContent>
+              </Select>
+              <Input value={planningForm.weekLabel} onChange={(event) => setPlanningForm((current) => ({ ...current, weekLabel: event.target.value }))} placeholder="Semana" />
+              <Input type="date" value={planningForm.targetDate} onChange={(event) => setPlanningForm((current) => ({ ...current, targetDate: event.target.value, weekLabel: getWeekLabel(event.target.value) }))} />
+              <Input value={planningForm.productLine} onChange={(event) => setPlanningForm((current) => ({ ...current, productLine: event.target.value }))} placeholder="Producto" />
+              <Input value={planningForm.goal} onChange={(event) => setPlanningForm((current) => ({ ...current, goal: event.target.value }))} placeholder="Objetivo" />
+              <Input value={planningForm.format} onChange={(event) => setPlanningForm((current) => ({ ...current, format: event.target.value }))} placeholder="Formato" />
+              <Input value={planningForm.messageAngle} onChange={(event) => setPlanningForm((current) => ({ ...current, messageAngle: event.target.value }))} placeholder="Enfoque" />
+              <Input value={planningForm.cta} onChange={(event) => setPlanningForm((current) => ({ ...current, cta: event.target.value }))} placeholder="CTA" />
+              <Input value={planningForm.channel} onChange={(event) => setPlanningForm((current) => ({ ...current, channel: event.target.value }))} placeholder="Canal" />
+              <Input value={planningForm.responsible} onChange={(event) => setPlanningForm((current) => ({ ...current, responsible: event.target.value }))} placeholder="Responsable" />
+              <Select value={planningForm.planningStatus} onValueChange={(value) => setPlanningForm((current) => ({ ...current, planningStatus: value as ContentPlanningStatus }))}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>{contentPlanningStatuses.map((status) => <SelectItem key={status} value={status}>{status}</SelectItem>)}</SelectContent>
+              </Select>
+              <Input value={planningForm.notes} onChange={(event) => setPlanningForm((current) => ({ ...current, notes: event.target.value }))} placeholder="Notas" />
+              <Button onClick={createPlanning} disabled={isSaving || !planningForm.productLine.trim()} className="gap-2 md:col-span-3 xl:col-span-4">
+                <Plus className="size-4" /> Agregar planificación
               </Button>
-            ) : null}
+            </CardContent>
+          </Card>
 
-            {view === "week" ? (
-              <div className="flex flex-wrap items-center gap-2">
-                <Button size="sm" variant="outline" onClick={goToPreviousWeek}>
+          <div className="grid gap-3">
+            {filteredPlanning.map((item) => (
+              <Card key={item.id}>
+                <CardContent className="grid gap-3 p-4 md:grid-cols-[1fr_auto] md:items-start">
+                  <div className="space-y-2">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className="font-medium">{item.productLine}</p>
+                      <Badge variant="outline">{item.brand}</Badge>
+                      <Badge variant="outline" className={statusClass(item.planningStatus)}>{item.planningStatus}</Badge>
+                    </div>
+                    {item.messageAngle || item.goal ? (
+                      <p className="text-sm text-muted-foreground">{item.messageAngle || item.goal}</p>
+                    ) : null}
+                    <p className="text-xs text-muted-foreground">{item.weekLabel} · {formatDate(item.targetDate)} · {item.channel} · {item.responsible || "Sin responsable"}</p>
+                  </div>
+                  <Button variant="ghost" size="sm" className="text-destructive" onClick={async () => {
+                    await deleteContentPlanningItem(item.id)
+                    setPlanningItems((current) => current.filter((currentItem) => currentItem.id !== item.id))
+                  }}>
+                    <Trash2 className="size-4" />
+                  </Button>
+                </CardContent>
+              </Card>
+            ))}
+            {filteredPlanning.length === 0 ? <p className="rounded-lg border border-dashed border-border p-4 text-sm text-muted-foreground">No hay planificación con estos filtros.</p> : null}
+          </div>
+        </TabsContent>
+
+        <TabsContent value="publishing" className="space-y-4">
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between">
+              <CardTitle className="text-base">Cronograma de publicación</CardTitle>
+              <ImportButton label="Importar CSV/XLSX" onImport={importPublishingFile} />
+            </CardHeader>
+            <CardContent className="grid gap-3 md:grid-cols-3 xl:grid-cols-4">
+              <Select value={publishingForm.brand} onValueChange={(value) => setPublishingForm((current) => ({ ...current, brand: value as ContentBrand }))}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>{contentBrands.map((brand) => <SelectItem key={brand} value={brand}>{brand}</SelectItem>)}</SelectContent>
+              </Select>
+              <Input type="date" value={publishingForm.publishDate} onChange={(event) => setPublishingForm((current) => ({ ...current, publishDate: event.target.value }))} />
+              <Input type="time" value={publishingForm.publishTime} onChange={(event) => setPublishingForm((current) => ({ ...current, publishTime: event.target.value }))} />
+              <Input value={publishingForm.productLine} onChange={(event) => setPublishingForm((current) => ({ ...current, productLine: event.target.value }))} placeholder="Producto" />
+              <Input value={publishingForm.channel} onChange={(event) => setPublishingForm((current) => ({ ...current, channel: event.target.value }))} placeholder="Canal" />
+              <Select value={publishingForm.publishingStatus} onValueChange={(value) => setPublishingForm((current) => ({ ...current, publishingStatus: value as ContentPublishingStatus }))}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>{contentPublishingStatuses.map((status) => <SelectItem key={status} value={status}>{status}</SelectItem>)}</SelectContent>
+              </Select>
+              <Input value={publishingForm.assetUrl} onChange={(event) => setPublishingForm((current) => ({ ...current, assetUrl: event.target.value }))} placeholder="Asset URL" />
+              <Input value={publishingForm.notes} onChange={(event) => setPublishingForm((current) => ({ ...current, notes: event.target.value }))} placeholder="Notas" />
+              <Textarea className="md:col-span-3 xl:col-span-4" rows={2} value={publishingForm.finalCopy} onChange={(event) => setPublishingForm((current) => ({ ...current, finalCopy: event.target.value }))} placeholder="Copy final" />
+              <Button onClick={createPublishing} disabled={isSaving || !publishingForm.productLine.trim()} className="gap-2 md:col-span-3 xl:col-span-4">
+                <Plus className="size-4" /> Agregar publicación
+              </Button>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <CardTitle className="flex items-center gap-2 text-base"><CalendarDays className="size-4" /> Agenda por día</CardTitle>
+                <p className="mt-1 text-xs text-muted-foreground">{formatDate(weekRange.start)} - {formatDate(toDateValue(addDays(parseDateValue(weekRange.end), -1)))}</p>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <Button variant="outline" size="sm" onClick={() => setVisibleWeekStart((current) => addDays(current, -7))}>
                   <ChevronLeft className="size-4" />
-                  Semana anterior
                 </Button>
-                <Button size="sm" variant="outline" onClick={goToCurrentWeek}>
-                  <RotateCcw className="size-4" />
+                <Button variant="outline" size="sm" onClick={() => setVisibleWeekStart(getWeekStart(new Date()))}>
                   Semana actual
                 </Button>
-                <Button size="sm" variant="outline" onClick={goToNextWeek}>
-                  Semana siguiente
+                <Button variant="outline" size="sm" onClick={() => setVisibleWeekStart((current) => addDays(current, 7))}>
                   <ChevronRight className="size-4" />
                 </Button>
               </div>
-            ) : null}
-          </div>
-
-          <div className="flex flex-wrap items-center gap-2">
-            <Select
-              value={statusFilter}
-              onValueChange={(value) =>
-                setStatusFilter(value as typeof ALL | ContentPostStatus)
-              }
-            >
-              <SelectTrigger className="w-[150px]" size="sm">
-                <SelectValue>
-                  {statusFilter === ALL ? "Todo estado" : statusFilter}
-                </SelectValue>
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value={ALL}>Todo estado</SelectItem>
-                {contentPostStatuses.map((status) => (
-                  <SelectItem key={status} value={status}>
-                    {status}
-                  </SelectItem>
+            </CardHeader>
+            <CardContent>
+              <div className="flex flex-col gap-3">
+                {publishingAgenda.map(([date, dayItems]) => (
+                  <section key={date} className="rounded-lg border border-border p-3">
+                    <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                      <p className="text-sm font-medium">{formatDayHeading(date)}</p>
+                      <Badge variant="outline">{dayItems.length} publicaciones</Badge>
+                    </div>
+                    <div className="flex flex-col gap-2">
+                      {dayItems.map((item) => (
+                        <div key={item.id} className="grid gap-3 rounded-md border border-border bg-card p-3 md:grid-cols-[72px_1fr_auto] md:items-start">
+                          <p className="text-xs text-muted-foreground">{item.publishTime || "Sin hora"}</p>
+                          <div>
+                            <p className="line-clamp-1 text-sm font-medium">{item.productLine}</p>
+                            <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">{item.finalCopy || item.notes || "Sin copy final."}</p>
+                            {item.assetUrl ? (
+                              <a href={item.assetUrl} target="_blank" rel="noreferrer" className="mt-2 inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground">
+                                <LinkIcon className="size-3" /> Asset
+                              </a>
+                            ) : null}
+                          </div>
+                          <div className="flex flex-wrap gap-1.5 md:justify-end">
+                            <Badge variant="outline" className="text-[11px]">{item.channel}</Badge>
+                            <Badge variant="outline" className={`text-[11px] ${statusClass(item.publishingStatus)}`}>{item.publishingStatus}</Badge>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </section>
                 ))}
-              </SelectContent>
-            </Select>
+                {publishingAgenda.length === 0 ? (
+                  <p className="rounded-lg border border-dashed border-border p-4 text-sm text-muted-foreground">
+                    No hay publicaciones agendadas para esta semana con los filtros actuales.
+                  </p>
+                ) : null}
+              </div>
+            </CardContent>
+          </Card>
 
-            <Select
-              value={channelFilter}
-              onValueChange={(value) => setChannelFilter(value ?? ALL)}
-            >
-              <SelectTrigger className="w-[160px]" size="sm">
-                <SelectValue>
-                  {channelFilter === ALL ? "Todo canal" : channelFilter}
-                </SelectValue>
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value={ALL}>Todo canal</SelectItem>
-                {channelOptions.map((channel) => (
-                  <SelectItem key={channel} value={channel}>
-                    {channel}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-
-            <Select
-              value={projectFilter}
-              onValueChange={(value) => setProjectFilter(value ?? ALL)}
-            >
-              <SelectTrigger className="w-[180px]" size="sm">
-                <SelectValue>
-                  {projectFilter === ALL ? "Todo proyecto" : projectName(projectFilter)}
-                </SelectValue>
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value={ALL}>Todo proyecto</SelectItem>
-                {projects.map((project) => (
-                  <SelectItem key={project.id} value={project.id}>
-                    {project.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-
-            <span className="ml-auto text-xs text-muted-foreground">
-              {visiblePosts.length}{" "}
-              {visiblePosts.length === 1 ? "publicación" : "publicaciones"}
-            </span>
-          </div>
-
-          {view === "week" ? (
-            <div className="rounded-lg border border-border bg-card px-4 py-3 text-sm">
-              <span className="font-medium">Semana visible</span>
-              <span className="ml-2 text-muted-foreground">
-                {formatWeekRange(visibleWeekRange)}
-              </span>
-              <span className="ml-2 text-xs text-muted-foreground">
-                En mobile, desplázate horizontalmente para ver todos los días.
-              </span>
-            </div>
-          ) : null}
-        </div>
-      ) : null}
-
-      {view === "table" ? (
-        <div className="space-y-3">
-          {!isLoading && !error && tablePosts.length === 0 ? (
-            <p className="rounded-lg border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
-              {getTableEmptyMessage({
-                hasPosts: posts.length > 0,
-                tableCurrentWeekOnly,
-              })}
-            </p>
-          ) : null}
-
-          {tablePosts.map((post) =>
-            editing === post.id ? (
-              <Card key={post.id}>
-                <CardContent className="pt-6">
-                  <ContentPostForm
-                    initial={post}
-                    areas={areas}
-                    projects={projects}
-                    onSubmit={(input) => updateSupabasePost(post.id, input)}
-                    onCancel={() => setEditing(null)}
-                  />
+          <div className="grid gap-3">
+            {filteredPublishing.map((item) => (
+              <Card key={item.id}>
+                <CardContent className="grid gap-3 p-4 md:grid-cols-[1fr_auto] md:items-start">
+                  <div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className="font-medium">{item.productLine}</p>
+                      <Badge variant="outline">{item.brand}</Badge>
+                      <Badge variant="outline" className={statusClass(item.publishingStatus)}>{item.publishingStatus}</Badge>
+                    </div>
+                    <p className="mt-1 text-xs text-muted-foreground">{formatDate(item.publishDate)} · {item.publishTime || "Sin hora"} · {item.channel}</p>
+                    <p className="mt-2 line-clamp-2 text-sm text-muted-foreground">{item.finalCopy || "Sin copy final."}</p>
+                  </div>
+                  <div className="flex gap-2">
+                    {item.publishingStatus !== "publicado" ? (
+                      <Button size="sm" onClick={async () => {
+                        const updated = await updateContentPublishingItem(item.id, { publishingStatus: "publicado" })
+                        setPublishingItems((current) => current.map((currentItem) => currentItem.id === item.id ? updated : currentItem))
+                      }}>
+                        <CheckCircle2 className="size-4" />
+                      </Button>
+                    ) : null}
+                    <Button variant="ghost" size="sm" className="text-destructive" onClick={async () => {
+                      await deleteContentPublishingItem(item.id)
+                      setPublishingItems((current) => current.filter((currentItem) => currentItem.id !== item.id))
+                    }}>
+                      <Trash2 className="size-4" />
+                    </Button>
+                  </div>
                 </CardContent>
               </Card>
-            ) : (
-              <ContentPostListCard
-                key={post.id}
-                post={post}
-                projectName={projectName}
-                areaName={areaName}
-                pendingPostId={pendingPostId}
-                onMarkPublished={markPostAsPublished}
-                onEdit={setEditing}
-                onDelete={deleteSupabasePost}
-              />
-            ),
-          )}
-        </div>
-      ) : (
-        <div className="overflow-x-auto pb-2">
-          {!isLoading && !error && weekPosts.length === 0 ? (
-          <p className="rounded-lg border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
-            {posts.length === 0
-              ? "No hay publicaciones todavía. Crea la primera para empezar."
-              : "No hay publicaciones en esta semana con los filtros actuales."}
-          </p>
-        ) : null}
-
-          <div className="grid min-w-[980px] grid-cols-7 gap-3">
-            {visibleWeekDays.map((day) => {
-              const dayPosts = postsByDay[day.value] ?? []
-
-              return (
-                <div key={day.value} className="rounded-lg border border-border bg-card">
-                  <div className="border-b border-border px-3 py-2">
-                    <p className="text-sm font-medium">{day.label}</p>
-                    <p className="text-xs text-muted-foreground">{formatDate(day.value)}</p>
-                  </div>
-                  <div className="space-y-2 p-2">
-                    {dayPosts.length > 0 ? (
-                      dayPosts.map((post) => (
-                        <WeeklyPostCard
-                          key={post.id}
-                          post={post}
-                          projectName={projectName}
-                          pendingPostId={pendingPostId}
-                          onMarkPublished={markPostAsPublished}
-                          onEdit={editPostFromWeek}
-                        />
-                      ))
-                    ) : (
-                      <p className="rounded-md border border-dashed border-border p-3 text-xs text-muted-foreground">
-                        Sin publicaciones este día.
-                      </p>
-                    )}
-                  </div>
-                </div>
-              )
-            })}
+            ))}
+            {filteredPublishing.length === 0 ? <p className="rounded-lg border border-dashed border-border p-4 text-sm text-muted-foreground">No hay publicaciones con estos filtros.</p> : null}
           </div>
-        </div>
-      )}
+        </TabsContent>
+
+        <TabsContent value="results" className="space-y-4">
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between">
+              <CardTitle className="text-base">Resultados básicos</CardTitle>
+              <ImportButton label="Importar CSV/XLSX" onImport={importResultsFile} />
+            </CardHeader>
+            <CardContent className="grid gap-3 md:grid-cols-3 xl:grid-cols-4">
+              <Select value={resultForm.brand} onValueChange={(value) => setResultForm((current) => ({ ...current, brand: value as ContentBrand }))}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>{contentBrands.map((brand) => <SelectItem key={brand} value={brand}>{brand}</SelectItem>)}</SelectContent>
+              </Select>
+              <Input value={resultForm.weekLabel} onChange={(event) => setResultForm((current) => ({ ...current, weekLabel: event.target.value }))} placeholder="Semana" />
+              <Input type="date" value={resultForm.publishDate} onChange={(event) => setResultForm((current) => ({ ...current, publishDate: event.target.value, weekLabel: getWeekLabel(event.target.value) }))} />
+              <Input value={resultForm.productLine} onChange={(event) => setResultForm((current) => ({ ...current, productLine: event.target.value }))} placeholder="Producto" />
+              <Input type="number" min={0} value={resultForm.reach} onChange={(event) => setResultForm((current) => ({ ...current, reach: Number(event.target.value) }))} placeholder="Alcance" />
+              <Input type="number" min={0} value={resultForm.impressions} onChange={(event) => setResultForm((current) => ({ ...current, impressions: Number(event.target.value) }))} placeholder="Impresiones" />
+              <Input className="md:col-span-3 xl:col-span-2" value={resultForm.notes} onChange={(event) => setResultForm((current) => ({ ...current, notes: event.target.value }))} placeholder="Notas" />
+              <Button onClick={createResult} disabled={isSaving || !resultForm.productLine.trim()} className="gap-2 md:col-span-3 xl:col-span-4">
+                <Plus className="size-4" /> Agregar resultado
+              </Button>
+            </CardContent>
+          </Card>
+
+          <div className="grid gap-3">
+            {filteredResults.map((item) => (
+              <Card key={item.id}>
+                <CardContent className="grid gap-3 p-4 md:grid-cols-[1fr_auto] md:items-start">
+                  <div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className="font-medium">{item.productLine}</p>
+                      <Badge variant="outline">{item.brand}</Badge>
+                    </div>
+                    <p className="mt-1 text-xs text-muted-foreground">{item.weekLabel} · {formatDate(item.publishDate)}</p>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <Badge variant="outline" className="gap-1"><BarChart3 className="size-3" /> Alcance {item.reach}</Badge>
+                      <Badge variant="outline">Impresiones {item.impressions}</Badge>
+                    </div>
+                  </div>
+                  <Button variant="ghost" size="sm" className="text-destructive" onClick={async () => {
+                    await deleteContentResultItem(item.id)
+                    setResultItems((current) => current.filter((currentItem) => currentItem.id !== item.id))
+                  }}>
+                    <Trash2 className="size-4" />
+                  </Button>
+                </CardContent>
+              </Card>
+            ))}
+            {filteredResults.length === 0 ? <p className="rounded-lg border border-dashed border-border p-4 text-sm text-muted-foreground">No hay resultados con estos filtros.</p> : null}
+          </div>
+        </TabsContent>
+      </Tabs>
+
+      <Card>
+        <CardContent className="flex items-start gap-2 p-4 text-xs text-muted-foreground">
+          <Table2 className="mt-0.5 size-4 shrink-0" />
+          <p>
+            La importación CSV es manual y espera encabezados simples como marca, semana, fecha,
+            producto, objetivo, canal, alcance o impresiones. También acepta XLSX con la primera hoja
+            usando las columnas de plantilla. No hay integración automática con Google Drive todavía.
+          </p>
+        </CardContent>
+      </Card>
     </div>
   )
 }

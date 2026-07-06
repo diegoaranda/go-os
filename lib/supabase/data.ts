@@ -5,7 +5,10 @@ import type {
   Area,
   ClickUpMirrorAssignee,
   ClickUpMirrorTask,
+  ContentPlanningItem,
+  ContentPublishingItem,
   ContentPost,
+  ContentResultItem,
   InboxItem,
   KnowledgeLibraryItem,
   Project,
@@ -35,6 +38,24 @@ export type CreateContentPostInput = Omit<ContentPost, "id" | "createdAt" | "upd
 export type UpdateContentPostInput = Partial<
   Omit<ContentPost, "id" | "createdAt" | "updatedAt">
 >
+
+export type CreateContentPlanningItemInput = Omit<
+  ContentPlanningItem,
+  "id" | "createdAt" | "updatedAt"
+>
+export type UpdateContentPlanningItemInput = Partial<CreateContentPlanningItemInput>
+
+export type CreateContentPublishingItemInput = Omit<
+  ContentPublishingItem,
+  "id" | "createdAt" | "updatedAt"
+>
+export type UpdateContentPublishingItemInput = Partial<CreateContentPublishingItemInput>
+
+export type CreateContentResultItemInput = Omit<
+  ContentResultItem,
+  "id" | "createdAt" | "updatedAt"
+>
+export type UpdateContentResultItemInput = Partial<CreateContentResultItemInput>
 
 export type UpsertWeeklyReviewInput = Pick<WeeklyReview, "weekStart" | "note">
 
@@ -119,6 +140,57 @@ type ContentPostRow = {
   updated_at: string
 }
 
+type ContentPlanningItemRow = {
+  id: string
+  user_id: string
+  brand: ContentPlanningItem["brand"]
+  week_label: string
+  target_date: string
+  product_line: string
+  goal: string
+  format: string
+  message_angle: string
+  cta: string
+  channel: string
+  responsible: string
+  planning_status: ContentPlanningItem["planningStatus"]
+  notes: string | null
+  created_at: string
+  updated_at: string
+}
+
+type ContentPublishingItemRow = {
+  id: string
+  user_id: string
+  planning_item_id: string | null
+  brand: ContentPublishingItem["brand"]
+  publish_date: string
+  publish_time: string | null
+  product_line: string
+  channel: string
+  final_copy: string
+  asset_url: string | null
+  publishing_status: ContentPublishingItem["publishingStatus"]
+  notes: string | null
+  created_at: string
+  updated_at: string
+}
+
+type ContentResultItemRow = {
+  id: string
+  user_id: string
+  publishing_item_id: string | null
+  brand: ContentResultItem["brand"]
+  week_label: string
+  publish_date: string
+  product_line: string
+  reach: number
+  impressions: number
+  notes: string | null
+  created_at: string
+  updated_at: string
+}
+
 type ClickUpMirrorTaskRow = {
   id: string
   user_id: string
@@ -169,6 +241,48 @@ type LibraryItemMutationRow = Pick<
   LibraryItemRow,
   "user_id" | "title" | "type" | "content" | "url" | "area_id" | "project_id"
 >
+
+type ContentPlanningItemMutationRow = Pick<
+  ContentPlanningItemRow,
+  | "user_id"
+  | "brand"
+  | "week_label"
+  | "target_date"
+  | "product_line"
+  | "goal"
+  | "format"
+  | "message_angle"
+  | "cta"
+  | "channel"
+  | "responsible"
+  | "planning_status"
+> & {
+  notes: string | null
+}
+
+type ContentPublishingItemMutationRow = Pick<
+  ContentPublishingItemRow,
+  | "user_id"
+  | "brand"
+  | "publish_date"
+  | "product_line"
+  | "channel"
+  | "final_copy"
+  | "publishing_status"
+> & {
+  planning_item_id: string | null
+  publish_time: string | null
+  asset_url: string | null
+  notes: string | null
+}
+
+type ContentResultItemMutationRow = Pick<
+  ContentResultItemRow,
+  "user_id" | "brand" | "week_label" | "publish_date" | "product_line" | "reach" | "impressions"
+> & {
+  publishing_item_id: string | null
+  notes: string | null
+}
 
 type ContentPostMutationRow = Pick<
   ContentPostRow,
@@ -420,6 +534,60 @@ function mapContentPostRow(row: ContentPostRow): ContentPost {
   }
 }
 
+function mapContentPlanningItemRow(row: ContentPlanningItemRow): ContentPlanningItem {
+  return {
+    id: row.id,
+    brand: row.brand,
+    weekLabel: row.week_label,
+    targetDate: row.target_date,
+    productLine: row.product_line,
+    goal: row.goal,
+    format: row.format,
+    messageAngle: row.message_angle,
+    cta: row.cta,
+    channel: row.channel,
+    responsible: row.responsible,
+    planningStatus: row.planning_status,
+    notes: row.notes ?? "",
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  }
+}
+
+function mapContentPublishingItemRow(row: ContentPublishingItemRow): ContentPublishingItem {
+  return {
+    id: row.id,
+    planningItemId: row.planning_item_id ?? "",
+    brand: row.brand,
+    publishDate: row.publish_date,
+    publishTime: row.publish_time ?? "",
+    productLine: row.product_line,
+    channel: row.channel,
+    finalCopy: row.final_copy,
+    assetUrl: row.asset_url ?? "",
+    publishingStatus: row.publishing_status,
+    notes: row.notes ?? "",
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  }
+}
+
+function mapContentResultItemRow(row: ContentResultItemRow): ContentResultItem {
+  return {
+    id: row.id,
+    publishingItemId: row.publishing_item_id ?? "",
+    brand: row.brand,
+    weekLabel: row.week_label,
+    publishDate: row.publish_date,
+    productLine: row.product_line,
+    reach: row.reach,
+    impressions: row.impressions,
+    notes: row.notes ?? "",
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  }
+}
+
 function normalizeClickUpAssignees(value: unknown): ClickUpMirrorAssignee[] {
   if (!Array.isArray(value)) return []
 
@@ -486,6 +654,114 @@ function mapContentPostUpdate(input: UpdateContentPostInput) {
   if (input.status !== undefined) update.status = input.status
   if (input.projectId !== undefined) update.project_id = input.projectId || null
   if (input.areaId !== undefined) update.area_id = input.areaId || null
+  if (input.notes !== undefined) update.notes = input.notes || null
+
+  return update
+}
+
+function mapContentPlanningItemInput(
+  input: CreateContentPlanningItemInput,
+  userId: string,
+): ContentPlanningItemMutationRow {
+  return {
+    user_id: userId,
+    brand: input.brand,
+    week_label: input.weekLabel,
+    target_date: input.targetDate,
+    product_line: input.productLine,
+    goal: input.goal,
+    format: input.format,
+    message_angle: input.messageAngle,
+    cta: input.cta,
+    channel: input.channel,
+    responsible: input.responsible,
+    planning_status: input.planningStatus,
+    notes: input.notes || null,
+  }
+}
+
+function mapContentPlanningItemUpdate(input: UpdateContentPlanningItemInput) {
+  const update: Partial<ContentPlanningItemMutationRow> = {}
+
+  if (input.brand !== undefined) update.brand = input.brand
+  if (input.weekLabel !== undefined) update.week_label = input.weekLabel
+  if (input.targetDate !== undefined) update.target_date = input.targetDate
+  if (input.productLine !== undefined) update.product_line = input.productLine
+  if (input.goal !== undefined) update.goal = input.goal
+  if (input.format !== undefined) update.format = input.format
+  if (input.messageAngle !== undefined) update.message_angle = input.messageAngle
+  if (input.cta !== undefined) update.cta = input.cta
+  if (input.channel !== undefined) update.channel = input.channel
+  if (input.responsible !== undefined) update.responsible = input.responsible
+  if (input.planningStatus !== undefined) update.planning_status = input.planningStatus
+  if (input.notes !== undefined) update.notes = input.notes || null
+
+  return update
+}
+
+function mapContentPublishingItemInput(
+  input: CreateContentPublishingItemInput,
+  userId: string,
+): ContentPublishingItemMutationRow {
+  return {
+    user_id: userId,
+    planning_item_id: input.planningItemId || null,
+    brand: input.brand,
+    publish_date: input.publishDate,
+    publish_time: input.publishTime || null,
+    product_line: input.productLine,
+    channel: input.channel,
+    final_copy: input.finalCopy,
+    asset_url: input.assetUrl || null,
+    publishing_status: input.publishingStatus,
+    notes: input.notes || null,
+  }
+}
+
+function mapContentPublishingItemUpdate(input: UpdateContentPublishingItemInput) {
+  const update: Partial<ContentPublishingItemMutationRow> = {}
+
+  if (input.planningItemId !== undefined) update.planning_item_id = input.planningItemId || null
+  if (input.brand !== undefined) update.brand = input.brand
+  if (input.publishDate !== undefined) update.publish_date = input.publishDate
+  if (input.publishTime !== undefined) update.publish_time = input.publishTime || null
+  if (input.productLine !== undefined) update.product_line = input.productLine
+  if (input.channel !== undefined) update.channel = input.channel
+  if (input.finalCopy !== undefined) update.final_copy = input.finalCopy
+  if (input.assetUrl !== undefined) update.asset_url = input.assetUrl || null
+  if (input.publishingStatus !== undefined) update.publishing_status = input.publishingStatus
+  if (input.notes !== undefined) update.notes = input.notes || null
+
+  return update
+}
+
+function mapContentResultItemInput(
+  input: CreateContentResultItemInput,
+  userId: string,
+): ContentResultItemMutationRow {
+  return {
+    user_id: userId,
+    publishing_item_id: input.publishingItemId || null,
+    brand: input.brand,
+    week_label: input.weekLabel,
+    publish_date: input.publishDate,
+    product_line: input.productLine,
+    reach: input.reach,
+    impressions: input.impressions,
+    notes: input.notes || null,
+  }
+}
+
+function mapContentResultItemUpdate(input: UpdateContentResultItemInput) {
+  const update: Partial<ContentResultItemMutationRow> = {}
+
+  if (input.publishingItemId !== undefined) update.publishing_item_id = input.publishingItemId || null
+  if (input.brand !== undefined) update.brand = input.brand
+  if (input.weekLabel !== undefined) update.week_label = input.weekLabel
+  if (input.publishDate !== undefined) update.publish_date = input.publishDate
+  if (input.productLine !== undefined) update.product_line = input.productLine
+  if (input.reach !== undefined) update.reach = input.reach
+  if (input.impressions !== undefined) update.impressions = input.impressions
   if (input.notes !== undefined) update.notes = input.notes || null
 
   return update
@@ -993,6 +1269,198 @@ export async function deleteContentPost(id: string) {
   const userId = await getAuthenticatedUserId(client)
   const { error } = await client
     .from("content_posts")
+    .delete()
+    .eq("id", id)
+    .eq("user_id", userId)
+
+  if (error) throw error
+}
+
+export async function listContentPlanningItems() {
+  const client = getSupabaseClient()
+  const userId = await getAuthenticatedUserId(client)
+  const { data, error } = await client
+    .from("content_planning_items")
+    .select("*")
+    .eq("user_id", userId)
+    .order("target_date", { ascending: true })
+    .order("created_at", { ascending: false })
+
+  if (error) throw error
+
+  return (data as ContentPlanningItemRow[]).map(mapContentPlanningItemRow)
+}
+
+export async function createContentPlanningItem(input: CreateContentPlanningItemInput) {
+  const client = getSupabaseClient()
+  const userId = await getAuthenticatedUserId(client)
+  const { data, error } = await client
+    .from("content_planning_items")
+    .insert(mapContentPlanningItemInput(input, userId))
+    .select("*")
+    .single()
+
+  if (error) throw error
+
+  return mapContentPlanningItemRow(data as ContentPlanningItemRow)
+}
+
+export async function updateContentPlanningItem(
+  id: string,
+  input: UpdateContentPlanningItemInput,
+) {
+  const client = getSupabaseClient()
+  const userId = await getAuthenticatedUserId(client)
+  const update = mapContentPlanningItemUpdate(input)
+  const query =
+    Object.keys(update).length > 0
+      ? client
+          .from("content_planning_items")
+          .update(update)
+          .eq("id", id)
+          .eq("user_id", userId)
+          .select("*")
+      : client.from("content_planning_items").select("*").eq("id", id).eq("user_id", userId)
+
+  const { data, error } = await query.single()
+
+  if (error) throw error
+
+  return mapContentPlanningItemRow(data as ContentPlanningItemRow)
+}
+
+export async function deleteContentPlanningItem(id: string) {
+  const client = getSupabaseClient()
+  const userId = await getAuthenticatedUserId(client)
+  const { error } = await client
+    .from("content_planning_items")
+    .delete()
+    .eq("id", id)
+    .eq("user_id", userId)
+
+  if (error) throw error
+}
+
+export async function listContentPublishingItems() {
+  const client = getSupabaseClient()
+  const userId = await getAuthenticatedUserId(client)
+  const { data, error } = await client
+    .from("content_publishing_items")
+    .select("*")
+    .eq("user_id", userId)
+    .order("publish_date", { ascending: true })
+    .order("publish_time", { ascending: true })
+
+  if (error) throw error
+
+  return (data as ContentPublishingItemRow[]).map(mapContentPublishingItemRow)
+}
+
+export async function createContentPublishingItem(input: CreateContentPublishingItemInput) {
+  const client = getSupabaseClient()
+  const userId = await getAuthenticatedUserId(client)
+  const { data, error } = await client
+    .from("content_publishing_items")
+    .insert(mapContentPublishingItemInput(input, userId))
+    .select("*")
+    .single()
+
+  if (error) throw error
+
+  return mapContentPublishingItemRow(data as ContentPublishingItemRow)
+}
+
+export async function updateContentPublishingItem(
+  id: string,
+  input: UpdateContentPublishingItemInput,
+) {
+  const client = getSupabaseClient()
+  const userId = await getAuthenticatedUserId(client)
+  const update = mapContentPublishingItemUpdate(input)
+  const query =
+    Object.keys(update).length > 0
+      ? client
+          .from("content_publishing_items")
+          .update(update)
+          .eq("id", id)
+          .eq("user_id", userId)
+          .select("*")
+      : client.from("content_publishing_items").select("*").eq("id", id).eq("user_id", userId)
+
+  const { data, error } = await query.single()
+
+  if (error) throw error
+
+  return mapContentPublishingItemRow(data as ContentPublishingItemRow)
+}
+
+export async function deleteContentPublishingItem(id: string) {
+  const client = getSupabaseClient()
+  const userId = await getAuthenticatedUserId(client)
+  const { error } = await client
+    .from("content_publishing_items")
+    .delete()
+    .eq("id", id)
+    .eq("user_id", userId)
+
+  if (error) throw error
+}
+
+export async function listContentResultItems() {
+  const client = getSupabaseClient()
+  const userId = await getAuthenticatedUserId(client)
+  const { data, error } = await client
+    .from("content_results")
+    .select("*")
+    .eq("user_id", userId)
+    .order("publish_date", { ascending: true })
+    .order("created_at", { ascending: false })
+
+  if (error) throw error
+
+  return (data as ContentResultItemRow[]).map(mapContentResultItemRow)
+}
+
+export async function createContentResultItem(input: CreateContentResultItemInput) {
+  const client = getSupabaseClient()
+  const userId = await getAuthenticatedUserId(client)
+  const { data, error } = await client
+    .from("content_results")
+    .insert(mapContentResultItemInput(input, userId))
+    .select("*")
+    .single()
+
+  if (error) throw error
+
+  return mapContentResultItemRow(data as ContentResultItemRow)
+}
+
+export async function updateContentResultItem(id: string, input: UpdateContentResultItemInput) {
+  const client = getSupabaseClient()
+  const userId = await getAuthenticatedUserId(client)
+  const update = mapContentResultItemUpdate(input)
+  const query =
+    Object.keys(update).length > 0
+      ? client
+          .from("content_results")
+          .update(update)
+          .eq("id", id)
+          .eq("user_id", userId)
+          .select("*")
+      : client.from("content_results").select("*").eq("id", id).eq("user_id", userId)
+
+  const { data, error } = await query.single()
+
+  if (error) throw error
+
+  return mapContentResultItemRow(data as ContentResultItemRow)
+}
+
+export async function deleteContentResultItem(id: string) {
+  const client = getSupabaseClient()
+  const userId = await getAuthenticatedUserId(client)
+  const { error } = await client
+    .from("content_results")
     .delete()
     .eq("id", id)
     .eq("user_id", userId)
