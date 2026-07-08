@@ -23,6 +23,7 @@ const typeLabels: Record<LibraryItemType, string> = {
   note: "Nota",
   link: "Link",
   resource: "Recurso",
+  email: "Correo",
 }
 
 type ContextualLibraryInput = Omit<KnowledgeLibraryItem, "id" | "createdAt">

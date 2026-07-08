@@ -11,7 +11,7 @@ export type TaskStatus =
 
 export type TaskSource = "Manual" | "ClickUp" | "Inbox"
 
-export type LibraryItemType = "note" | "link" | "resource"
+export type LibraryItemType = "note" | "link" | "resource" | "email"
 
 export type ContentPostStatus =
   | "Idea"
@@ -264,7 +264,7 @@ export const operativeTaskStatuses: TaskStatus[] = [
   "Terminado",
 ]
 
-export const libraryItemTypes: LibraryItemType[] = ["note", "link", "resource"]
+export const libraryItemTypes: LibraryItemType[] = ["note", "link", "resource", "email"]
 
 export const contentPostStatuses: ContentPostStatus[] = [
   "Idea",

@@ -94,6 +94,15 @@ const RESULTS_IMPORT_COLUMNS = [
   "impressions",
   "notes",
 ]
+const WEEK_DAYS = [
+  "Lunes",
+  "Martes",
+  "Miércoles",
+  "Jueves",
+  "Viernes",
+  "Sábado",
+  "Domingo",
+]
 
 type PlannerTab = "planning" | "publishing" | "results"
 
@@ -193,7 +202,7 @@ function emptyPlanningForm(): PlanningFormState {
     format: "",
     messageAngle: "",
     cta: "",
-    channel: DEFAULT_CHANNELS[0],
+    channel: "",
     responsible: "",
     planningStatus: "pendiente de producción",
     notes: "",
@@ -208,7 +217,7 @@ function emptyPublishingForm(): PublishingFormState {
     publishDate: today,
     publishTime: "",
     productLine: "",
-    channel: DEFAULT_CHANNELS[0],
+    channel: "",
     finalCopy: "",
     assetUrl: "",
     publishingStatus: "pendiente",
@@ -735,15 +744,17 @@ export default function ContentPlannerPage() {
   }, [])
 
   const weekRange = useMemo(() => getWeekRange(visibleWeekStart), [visibleWeekStart])
+  const visibleWeekLabel = getWeekLabel(toDateValue(visibleWeekStart))
   const weekOptions = useMemo(() => {
     return Array.from(
       new Set([
         getCurrentWeekLabel(),
+        visibleWeekLabel,
         ...planningItems.map((item) => item.weekLabel),
         ...resultItems.map((item) => item.weekLabel),
       ].filter(Boolean)),
     ).sort((a, b) => a.localeCompare(b, "es"))
-  }, [planningItems, resultItems])
+  }, [planningItems, resultItems, visibleWeekLabel])
 
   const channelOptions = useMemo(() => {
     return Array.from(
@@ -786,6 +797,21 @@ export default function ContentPlannerPage() {
     (item) => item.publishDate >= weekRange.start && item.publishDate < weekRange.end,
   )
 
+  const weekPlanning = filteredPlanning.filter(
+    (item) => item.targetDate >= weekRange.start && item.targetDate < weekRange.end,
+  )
+
+  const planningCalendar = Array.from({ length: 7 }, (_, index) => {
+    const date = toDateValue(addDays(visibleWeekStart, index))
+    const dayItems = weekPlanning
+      .filter((item) => item.targetDate === date)
+      .toSorted((first, second) =>
+        first.productLine.localeCompare(second.productLine, "es"),
+      )
+
+    return { date, dayName: WEEK_DAYS[index], items: dayItems }
+  })
+
   const publishingAgenda = Array.from(
     weekPublishing
       .toSorted((first, second) => {
@@ -819,6 +845,41 @@ export default function ContentPlannerPage() {
       : activeTab === "publishing"
         ? contentPublishingStatuses
         : []
+
+  const selectWeekFilter = (value: string) => {
+    if (value === ALL || !value) {
+      setWeekFilter("")
+      return
+    }
+
+    setWeekFilter(value)
+
+    const planningMatch = planningItems.find((item) => item.weekLabel === value)
+    const publishingMatch = publishingItems.find(
+      (item) => getWeekLabel(item.publishDate) === value,
+    )
+    const resultMatch = resultItems.find((item) => item.weekLabel === value)
+    const dateValue =
+      planningMatch?.targetDate ??
+      publishingMatch?.publishDate ??
+      resultMatch?.publishDate
+
+    if (dateValue) setVisibleWeekStart(getWeekStart(parseDateValue(dateValue)))
+  }
+
+  const moveVisibleWeek = (days: number) => {
+    setVisibleWeekStart((current) => {
+      const next = addDays(current, days)
+      setWeekFilter(getWeekLabel(toDateValue(next)))
+      return next
+    })
+  }
+
+  const showCurrentWeek = () => {
+    const current = getWeekStart(new Date())
+    setVisibleWeekStart(current)
+    setWeekFilter(getWeekLabel(toDateValue(current)))
+  }
 
   const createPlanning = async () => {
     if (!planningForm.productLine.trim()) return
@@ -1044,7 +1105,7 @@ export default function ContentPlannerPage() {
           </div>
           <div className="space-y-1.5">
             <Label>Semana</Label>
-            <Select value={weekFilter || ALL} onValueChange={(value) => setWeekFilter(value === ALL || !value ? "" : value)}>
+            <Select value={weekFilter || ALL} onValueChange={selectWeekFilter}>
               <SelectTrigger><SelectValue /></SelectTrigger>
               <SelectContent>
                 <SelectItem value={ALL}>Todas</SelectItem>
@@ -1106,11 +1167,11 @@ export default function ContentPlannerPage() {
 
         <TabsContent value="planning" className="space-y-4">
           <Card>
-            <CardHeader className="flex flex-row items-center justify-between">
+            <CardHeader className="flex flex-row items-center justify-between gap-3">
               <CardTitle className="text-base">Reunión del lunes</CardTitle>
               <ImportButton label="Importar CSV/XLSX" onImport={importPlanningFile} />
             </CardHeader>
-            <CardContent className="grid gap-3 md:grid-cols-3 xl:grid-cols-4">
+            <CardContent className="grid gap-2 md:grid-cols-3 xl:grid-cols-6">
               <Select value={planningForm.brand} onValueChange={(value) => setPlanningForm((current) => ({ ...current, brand: value as ContentBrand }))}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>{contentBrands.map((brand) => <SelectItem key={brand} value={brand}>{brand}</SelectItem>)}</SelectContent>
@@ -1128,39 +1189,91 @@ export default function ContentPlannerPage() {
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>{contentPlanningStatuses.map((status) => <SelectItem key={status} value={status}>{status}</SelectItem>)}</SelectContent>
               </Select>
-              <Input value={planningForm.notes} onChange={(event) => setPlanningForm((current) => ({ ...current, notes: event.target.value }))} placeholder="Notas" />
-              <Button onClick={createPlanning} disabled={isSaving || !planningForm.productLine.trim()} className="gap-2 md:col-span-3 xl:col-span-4">
+              <Input className="md:col-span-2 xl:col-span-2" value={planningForm.notes} onChange={(event) => setPlanningForm((current) => ({ ...current, notes: event.target.value }))} placeholder="Notas" />
+              <Button onClick={createPlanning} disabled={isSaving || !planningForm.productLine.trim()} className="gap-2 md:col-span-3 xl:col-span-6">
                 <Plus className="size-4" /> Agregar planificación
               </Button>
             </CardContent>
           </Card>
 
-          <div className="grid gap-3">
-            {filteredPlanning.map((item) => (
-              <Card key={item.id}>
-                <CardContent className="grid gap-3 p-4 md:grid-cols-[1fr_auto] md:items-start">
-                  <div className="space-y-2">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <p className="font-medium">{item.productLine}</p>
-                      <Badge variant="outline">{item.brand}</Badge>
-                      <Badge variant="outline" className={statusClass(item.planningStatus)}>{item.planningStatus}</Badge>
-                    </div>
-                    {item.messageAngle || item.goal ? (
-                      <p className="text-sm text-muted-foreground">{item.messageAngle || item.goal}</p>
-                    ) : null}
-                    <p className="text-xs text-muted-foreground">{item.weekLabel} · {formatDate(item.targetDate)} · {item.channel} · {item.responsible || "Sin responsable"}</p>
-                  </div>
-                  <Button variant="ghost" size="sm" className="text-destructive" onClick={async () => {
-                    await deleteContentPlanningItem(item.id)
-                    setPlanningItems((current) => current.filter((currentItem) => currentItem.id !== item.id))
-                  }}>
-                    <Trash2 className="size-4" />
-                  </Button>
-                </CardContent>
-              </Card>
-            ))}
-            {filteredPlanning.length === 0 ? <p className="rounded-lg border border-dashed border-border p-4 text-sm text-muted-foreground">No hay planificación con estos filtros.</p> : null}
-          </div>
+          <Card>
+            <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <CardTitle className="flex items-center gap-2 text-base"><CalendarDays className="size-4" /> Calendario semanal</CardTitle>
+                <p className="mt-1 text-xs text-muted-foreground">{formatDate(weekRange.start)} - {formatDate(toDateValue(addDays(parseDateValue(weekRange.end), -1)))}</p>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <Button variant="outline" size="sm" onClick={() => moveVisibleWeek(-7)} title="Semana anterior" aria-label="Semana anterior">
+                  <ChevronLeft className="size-4" />
+                </Button>
+                <Button variant="outline" size="sm" onClick={showCurrentWeek}>
+                  Semana actual
+                </Button>
+                <Button variant="outline" size="sm" onClick={() => moveVisibleWeek(7)} title="Semana siguiente" aria-label="Semana siguiente">
+                  <ChevronRight className="size-4" />
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <div className="overflow-x-auto">
+                <div className="grid min-w-[920px] grid-cols-7 gap-2 lg:min-w-0">
+                  {planningCalendar.map((day) => (
+                    <section key={day.date} className="flex min-h-56 flex-col rounded-lg border border-border bg-background/40">
+                      <div className="border-b border-border px-2.5 py-2">
+                        <div className="flex items-start justify-between gap-2">
+                          <div>
+                            <p className="text-sm font-medium">{day.dayName}</p>
+                            <p className="text-xs text-muted-foreground">{formatDate(day.date).replace(/ de /g, " ")}</p>
+                          </div>
+                          <Badge variant="outline" className="h-5 px-1.5 text-[11px]">
+                            {day.items.length}
+                          </Badge>
+                        </div>
+                      </div>
+                      <div className="flex flex-1 flex-col gap-2 p-2">
+                        {day.items.map((item) => (
+                          <div key={item.id} className="rounded-md border border-border bg-card px-2 py-1.5">
+                            <div className="flex items-start justify-between gap-2">
+                              <p className="line-clamp-2 text-xs font-medium">{item.productLine}</p>
+                              <Button
+                                variant="ghost"
+                                size="icon-xs"
+                                className="text-destructive"
+                                title="Eliminar planificación"
+                                aria-label="Eliminar planificación"
+                                onClick={async () => {
+                                  await deleteContentPlanningItem(item.id)
+                                  setPlanningItems((current) => current.filter((currentItem) => currentItem.id !== item.id))
+                                }}
+                              >
+                                <Trash2 />
+                              </Button>
+                            </div>
+                          </div>
+                        ))}
+                        {day.items.length === 0 ? (
+                          <p className="rounded-md border border-dashed border-border px-2 py-3 text-center text-xs text-muted-foreground">
+                            Sin publicaciones
+                          </p>
+                        ) : null}
+                      </div>
+                    </section>
+                  ))}
+                </div>
+              </div>
+              {weekPlanning.length === 0 ? (
+                <p className="mt-3 rounded-lg border border-dashed border-border p-4 text-sm text-muted-foreground">
+                  No hay planificación para esta semana con los filtros actuales.
+                </p>
+              ) : null}
+            </CardContent>
+          </Card>
+
+          {filteredPlanning.length > weekPlanning.length ? (
+            <p className="text-xs text-muted-foreground">
+              Hay {filteredPlanning.length - weekPlanning.length} items que coinciden con los filtros pero están fuera de la semana visible.
+            </p>
+          ) : null}
         </TabsContent>
 
         <TabsContent value="publishing" className="space-y-4">

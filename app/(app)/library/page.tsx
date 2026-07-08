@@ -1,7 +1,18 @@
 "use client"
 
 import { useEffect, useMemo, useState } from "react"
-import { ExternalLink, FileText, LinkIcon, Pencil, Plus, Trash2, X } from "lucide-react"
+import {
+  Check,
+  Copy,
+  ExternalLink,
+  FileText,
+  LinkIcon,
+  Pencil,
+  Plus,
+  Search,
+  Trash2,
+  X,
+} from "lucide-react"
 import { PageHeader } from "@/components/page-header"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -39,6 +50,30 @@ const typeLabels: Record<LibraryItemType, string> = {
   note: "Nota",
   link: "Link",
   resource: "Recurso",
+  email: "Correo",
+}
+
+function normalizeSearch(value: string) {
+  return value
+    .trim()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+}
+
+function formatLibraryDate(value: string) {
+  if (!value) return "Sin fecha"
+
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return value
+
+  return new Intl.DateTimeFormat("es", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(date)
 }
 
 type LibraryFormState = {
@@ -236,7 +271,9 @@ export default function LibraryPage() {
   const [typeFilter, setTypeFilter] = useState<typeof ALL | LibraryItemType>(ALL)
   const [areaFilter, setAreaFilter] = useState(ALL)
   const [projectFilter, setProjectFilter] = useState(ALL)
+  const [searchQuery, setSearchQuery] = useState("")
   const [editing, setEditing] = useState<string | null>(null)
+  const [copiedKey, setCopiedKey] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState("")
 
@@ -270,30 +307,83 @@ export default function LibraryPage() {
     }
   }, [])
 
-  const areaName = (id: string) =>
-    id ? areas.find((area) => area.id === id)?.name ?? "Sin área" : "Sin área"
-
-  const projectName = (id: string) =>
-    id ? projects.find((project) => project.id === id)?.name ?? "Sin proyecto" : "Sin proyecto"
-
-  const filteredItems = useMemo(
-    () =>
-      items.filter(
-        (item) =>
-          (typeFilter === ALL || item.type === typeFilter) &&
-          (areaFilter === ALL || item.areaId === areaFilter) &&
-          (projectFilter === ALL || item.projectId === projectFilter),
-      ),
-    [areaFilter, items, projectFilter, typeFilter],
+  const areaNameById = useMemo(
+    () => new Map(areas.map((area) => [area.id, area.name])),
+    [areas],
   )
 
+  const projectNameById = useMemo(
+    () => new Map(projects.map((project) => [project.id, project.name])),
+    [projects],
+  )
+
+  const areaName = (id: string) =>
+    id ? areaNameById.get(id) ?? "Sin área" : "Sin área"
+
+  const projectName = (id: string) =>
+    id ? projectNameById.get(id) ?? "Sin proyecto" : "Sin proyecto"
+
+  const filteredItems = useMemo(() => {
+    const query = normalizeSearch(searchQuery)
+
+    return items.filter((item) => {
+      const matchesFilters =
+        (typeFilter === ALL || item.type === typeFilter) &&
+        (areaFilter === ALL || item.areaId === areaFilter) &&
+        (projectFilter === ALL || item.projectId === projectFilter)
+
+      if (!matchesFilters) return false
+      if (!query) return true
+
+      const searchable = [
+        item.title,
+        item.url,
+        item.content,
+        typeLabels[item.type],
+        item.type,
+        item.areaId ? areaNameById.get(item.areaId) ?? "Sin área" : "Sin área",
+        item.projectId
+          ? projectNameById.get(item.projectId) ?? "Sin proyecto"
+          : "Sin proyecto",
+      ]
+        .map(normalizeSearch)
+        .join(" ")
+
+      return searchable.includes(query)
+    })
+  }, [
+    areaFilter,
+    areaNameById,
+    items,
+    projectFilter,
+    projectNameById,
+    searchQuery,
+    typeFilter,
+  ])
+
   const hasFilters =
-    typeFilter !== ALL || areaFilter !== ALL || projectFilter !== ALL
+    typeFilter !== ALL ||
+    areaFilter !== ALL ||
+    projectFilter !== ALL ||
+    searchQuery.trim().length > 0
 
   const resetFilters = () => {
+    setSearchQuery("")
     setTypeFilter(ALL)
     setAreaFilter(ALL)
     setProjectFilter(ALL)
+  }
+
+  const copyText = async (key: string, value: string) => {
+    if (!value) return
+
+    try {
+      await navigator.clipboard.writeText(value)
+      setCopiedKey(key)
+      window.setTimeout(() => setCopiedKey(null), 1500)
+    } catch {
+      setError("No se pudo copiar al portapapeles.")
+    }
   }
 
   const createSupabaseLibraryItem = async (
@@ -341,7 +431,7 @@ export default function LibraryPage() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="flex flex-col gap-6">
       <PageHeader
         title="Library"
         description="Repositorio simple de conocimiento, links y recursos."
@@ -371,6 +461,16 @@ export default function LibraryPage() {
 
       {!isLoading ? (
         <div className="flex flex-wrap items-center gap-2">
+          <div className="relative min-w-[220px] flex-1">
+            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              value={searchQuery}
+              onChange={(event) => setSearchQuery(event.target.value)}
+              placeholder="Buscar por título, link, nota, tipo, área o proyecto"
+              className="h-8 pl-8"
+            />
+          </div>
+
           <Select
             value={typeFilter}
             onValueChange={(value) => setTypeFilter(value as typeof ALL | LibraryItemType)}
@@ -447,10 +547,10 @@ export default function LibraryPage() {
         </p>
       ) : null}
 
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+      <div className="overflow-hidden rounded-lg border border-border bg-card">
         {filteredItems.map((item) => (
-          <Card key={item.id}>
-            <CardContent className="space-y-4 p-4">
+          <div key={item.id} className="border-b border-border last:border-b-0">
+            <div className="p-3">
               {editing === item.id ? (
                 <LibraryItemForm
                   initial={item}
@@ -460,73 +560,116 @@ export default function LibraryPage() {
                   onCancel={() => setEditing(null)}
                 />
               ) : (
-                <>
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0 space-y-1">
-                      <h2 className="truncate text-sm font-semibold">{item.title}</h2>
-                      <div className="flex flex-wrap gap-2">
-                        <Badge variant="outline" className="border-transparent bg-secondary font-normal">
-                          {typeLabels[item.type]}
-                        </Badge>
-                        <Badge variant="outline" className="border-border bg-background font-normal text-muted-foreground">
-                          {areaName(item.areaId)}
-                        </Badge>
-                        <Badge variant="outline" className="border-border bg-background font-normal text-muted-foreground">
-                          {projectName(item.projectId)}
-                        </Badge>
-                      </div>
-                    </div>
-                    <FileText className="size-4 shrink-0 text-muted-foreground" />
-                  </div>
-
-                  {item.url ? (
-                    <a
-                      href={item.url}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="flex items-center gap-1.5 truncate text-xs font-medium text-primary hover:underline"
-                    >
-                      <LinkIcon className="size-3 shrink-0" />
-                      <span className="truncate">{item.url}</span>
-                      <ExternalLink className="size-3 shrink-0" />
-                    </a>
-                  ) : null}
-
-                  {item.content ? (
-                    <p className="line-clamp-4 rounded-md bg-secondary/40 px-2.5 py-2 text-xs text-muted-foreground">
-                      {item.content}
-                    </p>
-                  ) : null}
-
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="text-xs text-muted-foreground">{item.createdAt}</span>
-                    <div className="flex items-center gap-2">
-                      <Button
-                        size="sm"
+                <div className="grid grid-cols-[minmax(0,1fr)_4.5rem] grid-rows-[auto_2rem_minmax(3.5rem,auto)_1.75rem] gap-x-3 gap-y-2">
+                  <div className="col-start-1 row-start-1 flex min-w-0 flex-wrap items-center gap-2">
+                    <h2 className="min-w-0 truncate text-sm font-semibold">{item.title}</h2>
+                    <Badge variant="outline" className="font-normal">
+                      {typeLabels[item.type]}
+                    </Badge>
+                    {item.areaId ? (
+                      <Badge
                         variant="outline"
-                        onClick={() => setEditing(item.id)}
-                        className="h-7 gap-1 px-2 text-xs"
+                        className="bg-background font-normal text-muted-foreground"
                       >
-                        <Pencil className="size-3" />
-                        Editar
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        onClick={() => {
-                          void deleteSupabaseLibraryItem(item.id)
-                        }}
-                        className="h-7 gap-1 px-2 text-xs text-destructive"
+                        {areaName(item.areaId)}
+                      </Badge>
+                    ) : null}
+                    {item.projectId ? (
+                      <Badge
+                        variant="outline"
+                        className="bg-background font-normal text-muted-foreground"
                       >
-                        <Trash2 className="size-3" />
-                        Eliminar
-                      </Button>
-                    </div>
+                        {projectName(item.projectId)}
+                      </Badge>
+                    ) : null}
                   </div>
-                </>
+
+                  <div className="col-start-1 row-start-2 flex min-w-0 items-center gap-1.5 text-xs">
+                    <LinkIcon className="shrink-0 text-muted-foreground" />
+                    {item.url ? (
+                      <a
+                        href={item.url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="min-w-0 truncate font-medium text-primary hover:underline"
+                      >
+                        {item.url}
+                      </a>
+                    ) : (
+                      <span className="text-muted-foreground">Sin link</span>
+                    )}
+                    {item.url ? <ExternalLink className="shrink-0 text-muted-foreground" /> : null}
+                  </div>
+
+                  <div className="col-start-2 row-start-2 flex justify-end">
+                    <Button
+                      type="button"
+                      size="icon-sm"
+                      variant="outline"
+                      onClick={() => void copyText(`${item.id}-url`, item.url)}
+                      disabled={!item.url}
+                      title="Copiar link"
+                      aria-label="Copiar link"
+                    >
+                      {copiedKey === `${item.id}-url` ? <Check /> : <Copy />}
+                    </Button>
+                  </div>
+
+                  <div className="col-start-1 row-start-3 min-w-0 rounded-md bg-secondary/30 px-2.5 py-2">
+                    <div className="mb-0.5 flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+                      <FileText />
+                      Nota
+                    </div>
+                    <p className="line-clamp-3 whitespace-pre-wrap text-xs text-muted-foreground">
+                      {item.content || "Sin nota"}
+                    </p>
+                  </div>
+
+                  <div className="col-start-2 row-start-3 flex justify-end">
+                    <Button
+                      type="button"
+                      size="icon-sm"
+                      variant="ghost"
+                      onClick={() => void copyText(`${item.id}-content`, item.content)}
+                      disabled={!item.content}
+                      title="Copiar nota"
+                      aria-label="Copiar nota"
+                    >
+                      {copiedKey === `${item.id}-content` ? <Check /> : <Copy />}
+                    </Button>
+                  </div>
+
+                  <span className="col-start-1 row-start-4 self-center whitespace-nowrap text-xs text-muted-foreground">
+                    {formatLibraryDate(item.createdAt)}
+                  </span>
+
+                  <div className="col-start-2 row-start-4 grid grid-cols-2 gap-2">
+                    <Button
+                      size="icon-sm"
+                      variant="outline"
+                      onClick={() => setEditing(item.id)}
+                      title="Editar"
+                      aria-label="Editar"
+                    >
+                      <Pencil />
+                    </Button>
+                    <Button
+                      size="icon-sm"
+                      variant="ghost"
+                      onClick={() => {
+                        void deleteSupabaseLibraryItem(item.id)
+                      }}
+                      className="text-destructive"
+                      title="Eliminar"
+                      aria-label="Eliminar"
+                    >
+                      <Trash2 />
+                    </Button>
+                  </div>
+                </div>
               )}
-            </CardContent>
-          </Card>
+            </div>
+          </div>
         ))}
       </div>
     </div>
