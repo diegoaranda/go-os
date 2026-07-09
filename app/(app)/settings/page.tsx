@@ -3,6 +3,10 @@
 import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 import { LogOut, Plus, X, MessageCircle, ListTodo } from "lucide-react"
+import {
+  SIDEBAR_ORDER_RESET_EVENT,
+  SIDEBAR_ORDER_STORAGE_KEY,
+} from "@/components/app-nav"
 import { PageHeader } from "@/components/page-header"
 import {
   Card,
@@ -81,6 +85,7 @@ export default function SettingsPage() {
   const [draftName, setDraftName] = useState("")
   const [accountError, setAccountError] = useState("")
   const [accountSuccess, setAccountSuccess] = useState("")
+  const [preferencesSuccess, setPreferencesSuccess] = useState("")
 
   useEffect(() => {
     let cancelled = false
@@ -187,6 +192,12 @@ export default function SettingsPage() {
 
   const initials = getInitials(accountEmail, displayName)
 
+  const resetSidebarOrder = () => {
+    window.localStorage.removeItem(SIDEBAR_ORDER_STORAGE_KEY)
+    window.dispatchEvent(new Event(SIDEBAR_ORDER_RESET_EVENT))
+    setPreferencesSuccess("Orden del menú restaurado.")
+  }
+
   return (
     <div className="space-y-6">
       <PageHeader
@@ -275,6 +286,11 @@ export default function SettingsPage() {
             <CardDescription>Ajusta el comportamiento de la app.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
+            {preferencesSuccess ? (
+              <p className="rounded-md border border-primary/20 bg-primary/10 px-3 py-2 text-sm text-primary">
+                {preferencesSuccess}
+              </p>
+            ) : null}
             <SettingSwitch
               label="Modo oscuro"
               description="Interfaz oscura por defecto."
@@ -291,6 +307,18 @@ export default function SettingsPage() {
               label="Recordatorios de bloqueados"
               description="Avisar cuando una tarea lleve mucho tiempo bloqueada."
             />
+            <Separator />
+            <div className="flex items-center justify-between gap-4">
+              <div className="space-y-0.5">
+                <p className="text-sm font-medium">Orden del menú</p>
+                <p className="text-xs text-muted-foreground">
+                  Vuelve al orden original de los módulos del sidebar.
+                </p>
+              </div>
+              <Button variant="outline" size="sm" onClick={resetSidebarOrder}>
+                Restaurar orden del menú
+              </Button>
+            </div>
           </CardContent>
         </Card>
 
