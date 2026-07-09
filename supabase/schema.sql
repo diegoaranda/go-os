@@ -90,12 +90,16 @@ create table if not exists public.library_items (
   title text not null,
   type text not null
     check (type in ('note', 'link', 'resource')),
+  tag text,
   content text,
   url text,
   area_id uuid references public.areas(id) on delete set null,
   project_id uuid references public.projects(id) on delete set null,
   created_at timestamptz not null default now()
 );
+
+alter table public.library_items
+add column if not exists tag text;
 
 create table if not exists public.weekly_reviews (
   id uuid primary key default gen_random_uuid(),
@@ -286,6 +290,7 @@ create index if not exists tasks_user_status_idx on public.tasks(user_id, status
 create index if not exists inbox_items_user_archived_idx on public.inbox_items(user_id, archived);
 create index if not exists library_items_user_id_idx on public.library_items(user_id);
 create index if not exists library_items_user_type_idx on public.library_items(user_id, type);
+create index if not exists library_items_user_tag_idx on public.library_items(user_id, tag);
 create index if not exists library_items_user_area_id_idx on public.library_items(user_id, area_id);
 create index if not exists library_items_user_project_id_idx on public.library_items(user_id, project_id);
 create index if not exists weekly_reviews_user_week_idx on public.weekly_reviews(user_id, week_start);

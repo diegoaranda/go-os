@@ -132,6 +132,7 @@ type LibraryItemRow = {
   user_id: string
   title: string
   type: KnowledgeLibraryItem["type"]
+  tag: string | null
   content: string | null
   url: string | null
   area_id: string | null
@@ -317,7 +318,14 @@ type InboxItemMutationRow = Pick<
 
 type LibraryItemMutationRow = Pick<
   LibraryItemRow,
-  "user_id" | "title" | "type" | "content" | "url" | "area_id" | "project_id"
+  | "user_id"
+  | "title"
+  | "type"
+  | "tag"
+  | "content"
+  | "url"
+  | "area_id"
+  | "project_id"
 >
 
 type ContentPlanningItemMutationRow = Pick<
@@ -602,6 +610,7 @@ function mapLibraryItemRow(row: LibraryItemRow): KnowledgeLibraryItem {
     id: row.id,
     title: row.title,
     type: row.type,
+    tag: row.tag ?? "",
     content: row.content ?? "",
     url: row.url ?? "",
     areaId: row.area_id ?? "",
@@ -618,6 +627,7 @@ function mapLibraryItemInput(
     user_id: userId,
     title: input.title,
     type: input.type,
+    tag: input.tag || null,
     content: input.content || null,
     url: input.url || null,
     area_id: input.areaId || null,
@@ -630,6 +640,7 @@ function mapLibraryItemUpdate(input: UpdateLibraryItemInput) {
 
   if (input.title !== undefined) update.title = input.title
   if (input.type !== undefined) update.type = input.type
+  if (input.tag !== undefined) update.tag = input.tag || null
   if (input.content !== undefined) update.content = input.content || null
   if (input.url !== undefined) update.url = input.url || null
   if (input.areaId !== undefined) update.area_id = input.areaId || null

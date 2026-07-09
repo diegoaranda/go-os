@@ -104,6 +104,7 @@ export type KnowledgeLibraryItem = {
   id: string
   title: string
   type: LibraryItemType
+  tag?: string | null
   content: string
   url: string
   areaId: string

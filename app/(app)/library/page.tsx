@@ -61,6 +61,20 @@ function normalizeSearch(value: string) {
     .replace(/[\u0300-\u036f]/g, "")
 }
 
+function normalizeTagInput(value: string) {
+  return value
+    .replace(/^#+/, "")
+    .trim()
+    .replace(/\s+/g, " ")
+}
+
+function formatTagLabel(value?: string | null) {
+  const tag = normalizeTagInput(value ?? "")
+  if (!tag) return ""
+
+  return `#${tag.replace(/\s+/g, "-")}`
+}
+
 function formatLibraryDate(value: string) {
   if (!value) return "Sin fecha"
 
@@ -79,6 +93,7 @@ function formatLibraryDate(value: string) {
 type LibraryFormState = {
   title: string
   type: LibraryItemType
+  tag: string
   content: string
   url: string
   areaId: string
@@ -89,6 +104,7 @@ function fromLibraryItem(item?: KnowledgeLibraryItem): LibraryFormState {
   return {
     title: item?.title ?? "",
     type: item?.type ?? "note",
+    tag: item?.tag ?? "",
     content: item?.content ?? "",
     url: item?.url ?? "",
     areaId: item?.areaId ?? "",
@@ -121,6 +137,7 @@ function LibraryItemForm({
       await onSubmit({
         title,
         type: form.type,
+        tag: normalizeTagInput(form.tag),
         content: form.content.trim(),
         url: form.url.trim(),
         areaId: form.areaId,
@@ -169,6 +186,20 @@ function LibraryItemForm({
             ))}
           </SelectContent>
         </Select>
+      </div>
+
+      <div className="flex flex-col gap-1.5 md:col-span-2">
+        <Label htmlFor={initial ? `library-tag-${initial.id}` : "new-library-tag"}>
+          Etiqueta
+        </Label>
+        <Input
+          id={initial ? `library-tag-${initial.id}` : "new-library-tag"}
+          value={form.tag}
+          onChange={(event) =>
+            setForm((current) => ({ ...current, tag: event.target.value }))
+          }
+          placeholder="Ej: banco, sitio web, contacto, recurso, referencia"
+        />
       </div>
 
       <div className="flex flex-col gap-1.5">
@@ -269,6 +300,7 @@ export default function LibraryPage() {
   const [areas, setAreas] = useState<Area[]>([])
   const [projects, setProjects] = useState<Project[]>([])
   const [typeFilter, setTypeFilter] = useState<typeof ALL | LibraryItemType>(ALL)
+  const [tagFilter, setTagFilter] = useState(ALL)
   const [areaFilter, setAreaFilter] = useState(ALL)
   const [projectFilter, setProjectFilter] = useState(ALL)
   const [searchQuery, setSearchQuery] = useState("")
@@ -323,12 +355,23 @@ export default function LibraryPage() {
   const projectName = (id: string) =>
     id ? projectNameById.get(id) ?? "Sin proyecto" : "Sin proyecto"
 
+  const tagOptions = useMemo(() => {
+    const tags = items
+      .map((item) => normalizeTagInput(item.tag ?? ""))
+      .filter(Boolean)
+
+    return Array.from(new Set(tags)).toSorted((first, second) =>
+      first.localeCompare(second),
+    )
+  }, [items])
+
   const filteredItems = useMemo(() => {
     const query = normalizeSearch(searchQuery)
 
     return items.filter((item) => {
       const matchesFilters =
         (typeFilter === ALL || item.type === typeFilter) &&
+        (tagFilter === ALL || normalizeTagInput(item.tag ?? "") === tagFilter) &&
         (areaFilter === ALL || item.areaId === areaFilter) &&
         (projectFilter === ALL || item.projectId === projectFilter)
 
@@ -339,6 +382,7 @@ export default function LibraryPage() {
         item.title,
         item.url,
         item.content,
+        item.tag ?? "",
         typeLabels[item.type],
         item.type,
         item.areaId ? areaNameById.get(item.areaId) ?? "Sin área" : "Sin área",
@@ -358,11 +402,13 @@ export default function LibraryPage() {
     projectFilter,
     projectNameById,
     searchQuery,
+    tagFilter,
     typeFilter,
   ])
 
   const hasFilters =
     typeFilter !== ALL ||
+    tagFilter !== ALL ||
     areaFilter !== ALL ||
     projectFilter !== ALL ||
     searchQuery.trim().length > 0
@@ -370,6 +416,7 @@ export default function LibraryPage() {
   const resetFilters = () => {
     setSearchQuery("")
     setTypeFilter(ALL)
+    setTagFilter(ALL)
     setAreaFilter(ALL)
     setProjectFilter(ALL)
   }
@@ -490,6 +537,22 @@ export default function LibraryPage() {
             </SelectContent>
           </Select>
 
+          <Select value={tagFilter} onValueChange={(value) => setTagFilter(value ?? ALL)}>
+            <SelectTrigger className="w-[170px]" size="sm">
+              <SelectValue>
+                {tagFilter === ALL ? "Todas las etiquetas" : formatTagLabel(tagFilter)}
+              </SelectValue>
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={ALL}>Todas las etiquetas</SelectItem>
+              {tagOptions.map((tag) => (
+                <SelectItem key={tag} value={tag}>
+                  {formatTagLabel(tag)}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+
           <Select value={areaFilter} onValueChange={(value) => setAreaFilter(value ?? ALL)}>
             <SelectTrigger className="w-[170px]" size="sm">
               <SelectValue>
@@ -566,6 +629,14 @@ export default function LibraryPage() {
                     <Badge variant="outline" className="font-normal">
                       {typeLabels[item.type]}
                     </Badge>
+                    {item.tag ? (
+                      <Badge
+                        variant="outline"
+                        className="bg-background font-normal text-muted-foreground"
+                      >
+                        {formatTagLabel(item.tag)}
+                      </Badge>
+                    ) : null}
                     {item.areaId ? (
                       <Badge
                         variant="outline"
