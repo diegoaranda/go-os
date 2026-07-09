@@ -282,6 +282,7 @@ export default function ProjectsPage() {
 
   const tasksByProject = useMemo(() => {
     return tasks.reduce<Record<string, Task[]>>((groups, task) => {
+      if (!task.projectId) return groups
       groups[task.projectId] = [...(groups[task.projectId] ?? []), task]
       return groups
     }, {})
@@ -358,7 +359,7 @@ export default function ProjectsPage() {
 
   const deleteSupabaseProject = async (id: string) => {
     const shouldDelete = window.confirm(
-      "¿Eliminar este proyecto? También se eliminarán sus tareas asociadas.",
+      "¿Eliminar este proyecto? Sus tareas asociadas quedarán sin proyecto.",
     )
     if (!shouldDelete) return
 
@@ -366,7 +367,9 @@ export default function ProjectsPage() {
     try {
       await deleteProject(id)
       setProjects((current) => current.filter((project) => project.id !== id))
-      setTasks((current) => current.filter((task) => task.projectId !== id))
+      setTasks((current) =>
+        current.map((task) => (task.projectId === id ? { ...task, projectId: null } : task)),
+      )
       setLibraryItems((current) =>
         current.map((item) => (item.projectId === id ? { ...item, projectId: "" } : item)),
       )

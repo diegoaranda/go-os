@@ -9,12 +9,13 @@ import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { countPrimaryClickUpStatuses, normalizeClickUpStatus } from "@/lib/clickup/statuses"
 import {
+  listAreas,
   listClickUpMirrorTasks,
   listInboxItems,
   listProjects,
   listTasks,
 } from "@/lib/supabase/data"
-import type { ClickUpMirrorTask, InboxItem, Project, Task } from "@/lib/types"
+import type { Area, ClickUpMirrorTask, InboxItem, Project, Task } from "@/lib/types"
 
 type MetricCardProps = {
   label: string
@@ -87,6 +88,7 @@ function mirrorStatusClass(status: string) {
 }
 
 export default function DashboardPage() {
+  const [areas, setAreas] = useState<Area[]>([])
   const [projects, setProjects] = useState<Project[]>([])
   const [tasks, setTasks] = useState<Task[]>([])
   const [inboxItems, setInboxItems] = useState<InboxItem[]>([])
@@ -99,13 +101,15 @@ export default function DashboardPage() {
 
     async function loadDashboard() {
       try {
-        const [nextProjects, nextTasks, nextInboxItems, nextMirrorTasks] = await Promise.all([
+        const [nextAreas, nextProjects, nextTasks, nextInboxItems, nextMirrorTasks] = await Promise.all([
+          listAreas(),
           listProjects(),
           listTasks(),
           listInboxItems(),
           listClickUpMirrorTasks(),
         ])
         if (cancelled) return
+        setAreas(nextAreas)
         setProjects(nextProjects)
         setTasks(nextTasks)
         setInboxItems(nextInboxItems)
@@ -127,8 +131,13 @@ export default function DashboardPage() {
   }, [])
 
   const projectName = useCallback(
-    (id: string) => projects.find((project) => project.id === id)?.name ?? "Sin proyecto",
+    (id?: string | null) =>
+      projects.find((project) => project.id === id)?.name ?? "Sin proyecto",
     [projects],
+  )
+  const areaName = useCallback(
+    (id?: string | null) => areas.find((area) => area.id === id)?.name ?? "Sin área",
+    [areas],
   )
 
   const metrics = useMemo(() => {
@@ -254,7 +263,12 @@ export default function DashboardPage() {
               <CardContent className="space-y-2">
                 {inProgressTasks.length > 0 ? (
                   inProgressTasks.map((task) => (
-                    <TaskRow key={task.id} task={task} projectName={projectName} />
+                    <TaskRow
+                      key={task.id}
+                      task={task}
+                      areaName={areaName}
+                      projectName={projectName}
+                    />
                   ))
                 ) : (
                   <p className="rounded-lg border border-dashed border-border p-4 text-sm text-muted-foreground">

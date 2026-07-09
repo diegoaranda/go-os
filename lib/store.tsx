@@ -159,7 +159,9 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
     setState((current) => ({
       ...current,
       projects: current.projects.filter((project) => project.id !== id),
-      tasks: current.tasks.filter((task) => task.projectId !== id),
+      tasks: current.tasks.map((task) =>
+        task.projectId === id ? { ...task, projectId: null } : task,
+      ),
       inboxItems: current.inboxItems.filter((item) => item.suggestedProject !== id),
     }))
   }, [])

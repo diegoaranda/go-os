@@ -18,44 +18,56 @@ import { Label } from "@/components/ui/label"
 import {
   createTask,
   deleteTask,
+  listAreas,
   listProjects,
   listTasks,
   updateTask,
 } from "@/lib/supabase/data"
-import { operativeTaskStatuses, type Project, type Task, type TaskStatus } from "@/lib/types"
+import {
+  operativeTaskStatuses,
+  type Area,
+  type Project,
+  type Task,
+  type TaskStatus,
+} from "@/lib/types"
 
 const ALL = "all"
+const NONE = "none"
 
 type TaskFormState = {
   title: string
+  areaId: string
   projectId: string
   status: TaskStatus
 }
 
-function fromTask(task?: Task, projectId = ""): TaskFormState {
+function fromTask(task?: Task): TaskFormState {
   return {
     title: task?.title ?? "",
-    projectId: task?.projectId ?? projectId,
+    areaId: task?.areaId ?? "",
+    projectId: task?.projectId ?? "",
     status: task?.status ?? "Pendiente",
   }
 }
 
 function TaskForm({
   initial,
+  areas,
   projects,
   onSubmit,
   onCancel,
 }: {
   initial?: Task
+  areas: Area[]
   projects: Project[]
   onSubmit: (input: Omit<Task, "id">) => void | Promise<void>
   onCancel?: () => void
 }) {
-  const [form, setForm] = useState<TaskFormState>(() =>
-    fromTask(initial, projects[0]?.id ?? ""),
-  )
+  const [form, setForm] = useState<TaskFormState>(() => fromTask(initial))
   const [isSubmitting, setIsSubmitting] = useState(false)
-  const selectedProjectId = form.projectId || projects[0]?.id || ""
+  const filteredProjects = form.areaId
+    ? projects.filter((project) => project.areaId === form.areaId)
+    : projects
   const preservedTaskFields = {
     priority: initial?.priority ?? "Media",
     due: initial?.due ?? "Hoy",
@@ -64,17 +76,18 @@ function TaskForm({
 
   const submit = async () => {
     const title = form.title.trim()
-    if (!title || !selectedProjectId) return
+    if (!title) return
     setIsSubmitting(true)
 
     try {
       await onSubmit({
         title,
-        projectId: selectedProjectId,
+        areaId: form.areaId || null,
+        projectId: form.projectId || null,
         status: form.status,
         ...preservedTaskFields,
       })
-      if (!initial) setForm(fromTask(undefined, projects[0]?.id ?? ""))
+      if (!initial) setForm(fromTask())
     } catch {
       return
     } finally {
@@ -83,8 +96,8 @@ function TaskForm({
   }
 
   return (
-    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-      <div className="flex flex-col gap-1.5 sm:col-span-2">
+    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+      <div className="flex flex-col gap-1.5 sm:col-span-2 lg:col-span-2">
         <Label htmlFor={initial ? `title-${initial.id}` : "new-task-title"}>Tarea</Label>
         <Input
           id={initial ? `title-${initial.id}` : "new-task-title"}
@@ -96,18 +109,59 @@ function TaskForm({
         />
       </div>
       <div className="flex flex-col gap-1.5">
-        <Label>Proyecto</Label>
+        <Label>Área</Label>
         <Select
-          value={selectedProjectId}
+          value={form.areaId || NONE}
           onValueChange={(value) =>
-            setForm((current) => ({ ...current, projectId: value ?? current.projectId }))
+            setForm((current) => {
+              const areaId = value === NONE ? "" : value ?? current.areaId
+              const currentProject = projects.find((project) => project.id === current.projectId)
+
+              return {
+                ...current,
+                areaId,
+                projectId:
+                  areaId && currentProject?.areaId !== areaId ? "" : current.projectId,
+              }
+            })
           }
         >
           <SelectTrigger className="w-full">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            {projects.map((project) => (
+            <SelectItem value={NONE}>Sin área</SelectItem>
+            {areas.map((area) => (
+              <SelectItem key={area.id} value={area.id}>
+                {area.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+      <div className="flex flex-col gap-1.5">
+        <Label>Proyecto</Label>
+        <Select
+          value={form.projectId || NONE}
+          onValueChange={(value) =>
+            setForm((current) => {
+              if (value === NONE) return { ...current, projectId: "" }
+
+              const project = projects.find((item) => item.id === value)
+              return {
+                ...current,
+                projectId: value ?? current.projectId,
+                areaId: project?.areaId || current.areaId,
+              }
+            })
+          }
+        >
+          <SelectTrigger className="w-full">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value={NONE}>Sin proyecto</SelectItem>
+            {filteredProjects.map((project) => (
               <SelectItem key={project.id} value={project.id}>
                 {project.name}
               </SelectItem>
@@ -140,7 +194,7 @@ function TaskForm({
           onClick={submit}
           size="sm"
           className="gap-1"
-          disabled={isSubmitting || projects.length === 0}
+          disabled={isSubmitting}
         >
           {initial ? <Pencil className="size-4" /> : <Plus className="size-4" />}
           {isSubmitting ? "Guardando..." : initial ? "Guardar" : "Crear"}
@@ -158,6 +212,7 @@ function TaskForm({
 
 export default function TasksPage() {
   const [tasks, setTasks] = useState<Task[]>([])
+  const [areas, setAreas] = useState<Area[]>([])
   const [projects, setProjects] = useState<Project[]>([])
   const [status, setStatus] = useState(ALL)
   const [editing, setEditing] = useState<string | null>(null)
@@ -169,11 +224,13 @@ export default function TasksPage() {
 
     async function loadData() {
       try {
-        const [nextProjects, nextTasks] = await Promise.all([
+        const [nextAreas, nextProjects, nextTasks] = await Promise.all([
+          listAreas(),
           listProjects(),
           listTasks(),
         ])
         if (cancelled) return
+        setAreas(nextAreas)
         setProjects(nextProjects)
         setTasks(nextTasks)
       } catch (caught) {
@@ -192,8 +249,13 @@ export default function TasksPage() {
     }
   }, [])
 
+  const areaName = useCallback(
+    (id?: string | null) => areas.find((item) => item.id === id)?.name ?? "Sin área",
+    [areas],
+  )
+
   const projectName = useCallback(
-    (id: string) => projects.find((item) => item.id === id)?.name ?? "Sin proyecto",
+    (id?: string | null) => projects.find((item) => item.id === id)?.name ?? "Sin proyecto",
     [projects],
   )
 
@@ -253,12 +315,7 @@ export default function TasksPage() {
           <CardTitle className="text-base">Crear tarea</CardTitle>
         </CardHeader>
         <CardContent>
-          <TaskForm projects={projects} onSubmit={createSupabaseTask} />
-          {projects.length === 0 && !isLoading ? (
-            <p className="mt-3 text-sm text-muted-foreground">
-              Crea un proyecto antes de agregar tareas.
-            </p>
-          ) : null}
+          <TaskForm areas={areas} projects={projects} onSubmit={createSupabaseTask} />
           {error ? <p className="mt-3 text-sm text-destructive">{error}</p> : null}
         </CardContent>
       </Card>
@@ -307,6 +364,7 @@ export default function TasksPage() {
                 <CardContent className="pt-6">
                   <TaskForm
                     initial={task}
+                    areas={areas}
                     projects={projects}
                     onSubmit={(input) => {
                       return updateSupabaseTask(task.id, input)
@@ -317,7 +375,7 @@ export default function TasksPage() {
               </Card>
             ) : (
               <div key={task.id} className="flex flex-col gap-2">
-                <TaskRow task={task} projectName={projectName} />
+                <TaskRow task={task} areaName={areaName} projectName={projectName} />
                 <div className="flex justify-end gap-2">
                   <Button
                     size="sm"

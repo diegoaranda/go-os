@@ -202,7 +202,7 @@ export default function WeeklyReviewPage() {
   const activeProjects = projects.filter((project) => project.status === "Activo")
   const pendingInboxItems = inboxItems.filter((item) => !item.archived)
 
-  const projectName = (projectId: string) =>
+  const projectName = (projectId?: string | null) =>
     projects.find((project) => project.id === projectId)?.name ?? "Sin proyecto"
 
   async function handleSave() {

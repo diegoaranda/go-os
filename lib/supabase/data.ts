@@ -107,7 +107,8 @@ type AreaRow = {
 type TaskRow = {
   id: string
   user_id: string
-  project_id: string
+  area_id: string | null
+  project_id: string | null
   title: string
   status: Task["status"]
   priority: Task["priority"]
@@ -306,7 +307,14 @@ type AreaMutationRow = Pick<AreaRow, "user_id" | "name">
 
 type TaskMutationRow = Pick<
   TaskRow,
-  "user_id" | "project_id" | "title" | "status" | "priority" | "due" | "source"
+  | "user_id"
+  | "area_id"
+  | "project_id"
+  | "title"
+  | "status"
+  | "priority"
+  | "due"
+  | "source"
 >
 
 type InboxItemMutationRow = Pick<
@@ -540,6 +548,7 @@ function mapTaskRow(row: TaskRow): Task {
     title: row.title,
     status: row.status,
     priority: row.priority,
+    areaId: row.area_id,
     projectId: row.project_id,
     due: row.due,
     source: row.source,
@@ -549,7 +558,8 @@ function mapTaskRow(row: TaskRow): Task {
 function mapTaskInput(input: CreateTaskInput, userId: string): TaskMutationRow {
   return {
     user_id: userId,
-    project_id: input.projectId,
+    area_id: input.areaId || null,
+    project_id: input.projectId || null,
     title: input.title,
     status: input.status,
     priority: input.priority,
@@ -561,7 +571,8 @@ function mapTaskInput(input: CreateTaskInput, userId: string): TaskMutationRow {
 function mapTaskUpdate(input: UpdateTaskInput) {
   const update: Partial<TaskMutationRow> = {}
 
-  if (input.projectId !== undefined) update.project_id = input.projectId
+  if (input.areaId !== undefined) update.area_id = input.areaId || null
+  if (input.projectId !== undefined) update.project_id = input.projectId || null
   if (input.title !== undefined) update.title = input.title
   if (input.status !== undefined) update.status = input.status
   if (input.priority !== undefined) update.priority = input.priority
@@ -610,7 +621,7 @@ function mapLibraryItemRow(row: LibraryItemRow): KnowledgeLibraryItem {
     id: row.id,
     title: row.title,
     type: row.type,
-    tag: row.tag ?? "",
+    tag: row.tag,
     content: row.content ?? "",
     url: row.url ?? "",
     areaId: row.area_id ?? "",
@@ -619,15 +630,30 @@ function mapLibraryItemRow(row: LibraryItemRow): KnowledgeLibraryItem {
   }
 }
 
+function normalizeLibraryTag(value?: string | null) {
+  if (value === undefined) return undefined
+  if (value === null) return null
+
+  const tag = value
+    .replace(/^#+/, "")
+    .trim()
+    .replace(/\s+/g, " ")
+    .toLowerCase()
+
+  return tag.length > 0 ? tag : null
+}
+
 function mapLibraryItemInput(
   input: CreateLibraryItemInput,
   userId: string,
 ): LibraryItemMutationRow {
+  const tag = normalizeLibraryTag(input.tag)
+
   return {
     user_id: userId,
     title: input.title,
     type: input.type,
-    tag: input.tag || null,
+    tag: tag ?? null,
     content: input.content || null,
     url: input.url || null,
     area_id: input.areaId || null,
@@ -640,7 +666,7 @@ function mapLibraryItemUpdate(input: UpdateLibraryItemInput) {
 
   if (input.title !== undefined) update.title = input.title
   if (input.type !== undefined) update.type = input.type
-  if (input.tag !== undefined) update.tag = input.tag || null
+  if (input.tag !== undefined) update.tag = normalizeLibraryTag(input.tag) ?? null
   if (input.content !== undefined) update.content = input.content || null
   if (input.url !== undefined) update.url = input.url || null
   if (input.areaId !== undefined) update.area_id = input.areaId || null

@@ -5,7 +5,6 @@ import {
   Check,
   Copy,
   ExternalLink,
-  FileText,
   LinkIcon,
   Pencil,
   Plus,
@@ -66,6 +65,12 @@ function normalizeTagInput(value: string) {
     .replace(/^#+/, "")
     .trim()
     .replace(/\s+/g, " ")
+    .toLowerCase()
+}
+
+function normalizeTagValue(value: string) {
+  const tag = normalizeTagInput(value)
+  return tag.length > 0 ? tag : null
 }
 
 function formatTagLabel(value?: string | null) {
@@ -88,6 +93,20 @@ function formatLibraryDate(value: string) {
     hour: "2-digit",
     minute: "2-digit",
   }).format(date)
+}
+
+function getErrorMessage(caught: unknown, fallback: string) {
+  if (caught instanceof Error) return caught.message
+  if (
+    caught &&
+    typeof caught === "object" &&
+    "message" in caught &&
+    typeof caught.message === "string"
+  ) {
+    return caught.message
+  }
+
+  return fallback
 }
 
 type LibraryFormState = {
@@ -137,14 +156,15 @@ function LibraryItemForm({
       await onSubmit({
         title,
         type: form.type,
-        tag: normalizeTagInput(form.tag),
+        tag: normalizeTagValue(form.tag),
         content: form.content.trim(),
         url: form.url.trim(),
         areaId: form.areaId,
         projectId: form.projectId,
       })
       if (!initial) setForm(fromLibraryItem())
-    } catch {
+    } catch (caught) {
+      console.error("Library form submit failed", caught)
       return
     } finally {
       setIsSubmitting(false)
@@ -441,7 +461,8 @@ export default function LibraryPage() {
       const item = await createLibraryItem(input)
       setItems((current) => [item, ...current])
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "No se pudo crear el item.")
+      console.error("Create library item failed", caught)
+      setError(getErrorMessage(caught, "No se pudo crear el item."))
       throw caught
     }
   }
@@ -458,7 +479,8 @@ export default function LibraryPage() {
       )
       setEditing(null)
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "No se pudo guardar el item.")
+      console.error("Update library item failed", caught)
+      setError(getErrorMessage(caught, "No se pudo guardar el item."))
       throw caught
     }
   }
@@ -611,137 +633,146 @@ export default function LibraryPage() {
       ) : null}
 
       <div className="overflow-hidden rounded-lg border border-border bg-card">
-        {filteredItems.map((item) => (
-          <div key={item.id} className="border-b border-border last:border-b-0">
-            <div className="p-3">
-              {editing === item.id ? (
-                <LibraryItemForm
-                  initial={item}
-                  areas={areas}
-                  projects={projects}
-                  onSubmit={(input) => updateSupabaseLibraryItem(item.id, input)}
-                  onCancel={() => setEditing(null)}
-                />
-              ) : (
-                <div className="grid grid-cols-[minmax(0,1fr)_4.5rem] grid-rows-[auto_2rem_minmax(3.5rem,auto)_1.75rem] gap-x-3 gap-y-2">
-                  <div className="col-start-1 row-start-1 flex min-w-0 flex-wrap items-center gap-2">
-                    <h2 className="min-w-0 truncate text-sm font-semibold">{item.title}</h2>
-                    <Badge variant="outline" className="font-normal">
-                      {typeLabels[item.type]}
-                    </Badge>
-                    {item.tag ? (
+        {filteredItems.map((item) => {
+          const copyValue = item.url || item.content
+          const copyKey = `${item.id}-copy`
+
+          return (
+            <div
+              key={item.id}
+              className="border-b border-border last:border-b-0 hover:bg-muted/20"
+            >
+              <div className="px-3 py-2.5">
+                {editing === item.id ? (
+                  <LibraryItemForm
+                    initial={item}
+                    areas={areas}
+                    projects={projects}
+                    onSubmit={(input) => updateSupabaseLibraryItem(item.id, input)}
+                    onCancel={() => setEditing(null)}
+                  />
+                ) : (
+                  <article className="space-y-2">
+                    <header className="flex min-w-0 flex-wrap items-center gap-1.5">
+                      <h2 className="mr-1 min-w-0 truncate text-sm font-semibold leading-5 text-foreground">
+                        {item.title}
+                      </h2>
                       <Badge
                         variant="outline"
-                        className="bg-background font-normal text-muted-foreground"
+                        className="h-5 bg-background px-1.5 font-normal"
                       >
-                        {formatTagLabel(item.tag)}
+                        {typeLabels[item.type]}
                       </Badge>
-                    ) : null}
-                    {item.areaId ? (
-                      <Badge
-                        variant="outline"
-                        className="bg-background font-normal text-muted-foreground"
-                      >
-                        {areaName(item.areaId)}
-                      </Badge>
-                    ) : null}
-                    {item.projectId ? (
-                      <Badge
-                        variant="outline"
-                        className="bg-background font-normal text-muted-foreground"
-                      >
-                        {projectName(item.projectId)}
-                      </Badge>
-                    ) : null}
-                  </div>
+                      {item.tag ? (
+                        <Badge
+                          variant="outline"
+                          className="h-5 bg-background px-1.5 font-normal text-muted-foreground"
+                        >
+                          {formatTagLabel(item.tag)}
+                        </Badge>
+                      ) : null}
+                      {item.areaId ? (
+                        <Badge
+                          variant="outline"
+                          className="h-5 bg-transparent px-1.5 font-normal text-muted-foreground/80"
+                        >
+                          {areaName(item.areaId)}
+                        </Badge>
+                      ) : null}
+                      {item.projectId ? (
+                        <Badge
+                          variant="outline"
+                          className="h-5 bg-transparent px-1.5 font-normal text-muted-foreground/80"
+                        >
+                          {projectName(item.projectId)}
+                        </Badge>
+                      ) : null}
+                    </header>
 
-                  <div className="col-start-1 row-start-2 flex min-w-0 items-center gap-1.5 text-xs">
-                    <LinkIcon className="shrink-0 text-muted-foreground" />
-                    {item.url ? (
-                      <a
-                        href={item.url}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="min-w-0 truncate font-medium text-primary hover:underline"
-                      >
-                        {item.url}
-                      </a>
-                    ) : (
-                      <span className="text-muted-foreground">Sin link</span>
-                    )}
-                    {item.url ? <ExternalLink className="shrink-0 text-muted-foreground" /> : null}
-                  </div>
+                    <div className="space-y-1">
+                      {item.url ? (
+                        <div className="flex min-w-0 items-center gap-1.5 text-xs">
+                          <LinkIcon className="size-3.5 shrink-0 text-muted-foreground" />
+                          <a
+                            href={item.url}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="line-clamp-1 min-w-0 break-all font-medium text-primary hover:underline"
+                          >
+                            {item.url}
+                          </a>
+                        </div>
+                      ) : null}
 
-                  <div className="col-start-2 row-start-2 flex justify-end">
-                    <Button
-                      type="button"
-                      size="icon-sm"
-                      variant="outline"
-                      onClick={() => void copyText(`${item.id}-url`, item.url)}
-                      disabled={!item.url}
-                      title="Copiar link"
-                      aria-label="Copiar link"
-                    >
-                      {copiedKey === `${item.id}-url` ? <Check /> : <Copy />}
-                    </Button>
-                  </div>
-
-                  <div className="col-start-1 row-start-3 min-w-0 rounded-md bg-secondary/30 px-2.5 py-2">
-                    <div className="mb-0.5 flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
-                      <FileText />
-                      Nota
+                      {item.content ? (
+                        <p className="line-clamp-2 whitespace-pre-wrap text-xs leading-5 text-muted-foreground">
+                          {item.content}
+                        </p>
+                      ) : !item.url ? (
+                        <p className="text-xs text-muted-foreground">Sin contenido</p>
+                      ) : null}
                     </div>
-                    <p className="line-clamp-3 whitespace-pre-wrap text-xs text-muted-foreground">
-                      {item.content || "Sin nota"}
-                    </p>
-                  </div>
 
-                  <div className="col-start-2 row-start-3 flex justify-end">
-                    <Button
-                      type="button"
-                      size="icon-sm"
-                      variant="ghost"
-                      onClick={() => void copyText(`${item.id}-content`, item.content)}
-                      disabled={!item.content}
-                      title="Copiar nota"
-                      aria-label="Copiar nota"
-                    >
-                      {copiedKey === `${item.id}-content` ? <Check /> : <Copy />}
-                    </Button>
-                  </div>
+                    <footer className="flex items-center justify-between gap-3">
+                      <span className="whitespace-nowrap text-xs text-muted-foreground">
+                        {formatLibraryDate(item.createdAt)}
+                      </span>
 
-                  <span className="col-start-1 row-start-4 self-center whitespace-nowrap text-xs text-muted-foreground">
-                    {formatLibraryDate(item.createdAt)}
-                  </span>
-
-                  <div className="col-start-2 row-start-4 grid grid-cols-2 gap-2">
-                    <Button
-                      size="icon-sm"
-                      variant="outline"
-                      onClick={() => setEditing(item.id)}
-                      title="Editar"
-                      aria-label="Editar"
-                    >
-                      <Pencil />
-                    </Button>
-                    <Button
-                      size="icon-sm"
-                      variant="ghost"
-                      onClick={() => {
-                        void deleteSupabaseLibraryItem(item.id)
-                      }}
-                      className="text-destructive"
-                      title="Eliminar"
-                      aria-label="Eliminar"
-                    >
-                      <Trash2 />
-                    </Button>
-                  </div>
-                </div>
-              )}
+                      <div className="flex shrink-0 items-center gap-1">
+                        <Button
+                          type="button"
+                          size="icon-sm"
+                          variant="ghost"
+                          onClick={() => void copyText(copyKey, copyValue)}
+                          disabled={!copyValue}
+                          title={item.url ? "Copiar link" : "Copiar contenido"}
+                          aria-label={item.url ? "Copiar link" : "Copiar contenido"}
+                        >
+                          {copiedKey === copyKey ? <Check /> : <Copy />}
+                        </Button>
+                        {item.url ? (
+                          <Button
+                            type="button"
+                            size="icon-sm"
+                            variant="ghost"
+                            onClick={() =>
+                              window.open(item.url, "_blank", "noopener,noreferrer")
+                            }
+                            title="Abrir link"
+                            aria-label="Abrir link"
+                          >
+                            <ExternalLink />
+                          </Button>
+                        ) : null}
+                        <Button
+                          size="icon-sm"
+                          variant="ghost"
+                          onClick={() => setEditing(item.id)}
+                          title="Editar"
+                          aria-label="Editar"
+                        >
+                          <Pencil />
+                        </Button>
+                        <Button
+                          size="icon-sm"
+                          variant="ghost"
+                          onClick={() => {
+                            void deleteSupabaseLibraryItem(item.id)
+                          }}
+                          className="text-destructive"
+                          title="Eliminar"
+                          aria-label="Eliminar"
+                        >
+                          <Trash2 />
+                        </Button>
+                      </div>
+                    </footer>
+                  </article>
+                )}
+              </div>
             </div>
-          </div>
-        ))}
+          )
+        })}
       </div>
     </div>
   )

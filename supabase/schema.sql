@@ -61,7 +61,8 @@ $$;
 create table if not exists public.tasks (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references auth.users(id) on delete cascade,
-  project_id uuid not null references public.projects(id) on delete cascade,
+  area_id uuid references public.areas(id) on delete set null,
+  project_id uuid references public.projects(id) on delete set null,
   title text not null,
   status text not null default 'Pendiente'
     check (status in ('Pendiente', 'En curso', 'En revisión', 'Bloqueado', 'Terminado')),
@@ -89,7 +90,7 @@ create table if not exists public.library_items (
   user_id uuid not null references auth.users(id) on delete cascade,
   title text not null,
   type text not null
-    check (type in ('note', 'link', 'resource')),
+    check (type in ('note', 'link', 'resource', 'email')),
   tag text,
   content text,
   url text,
@@ -100,6 +101,13 @@ create table if not exists public.library_items (
 
 alter table public.library_items
 add column if not exists tag text;
+
+alter table public.library_items
+drop constraint if exists library_items_type_check;
+
+alter table public.library_items
+add constraint library_items_type_check
+check (type in ('note', 'link', 'resource', 'email'));
 
 create table if not exists public.weekly_reviews (
   id uuid primary key default gen_random_uuid(),
@@ -285,6 +293,7 @@ create index if not exists projects_user_id_idx on public.projects(user_id);
 create index if not exists projects_user_area_id_idx on public.projects(user_id, area_id);
 create index if not exists projects_user_status_idx on public.projects(user_id, status);
 create index if not exists tasks_user_id_idx on public.tasks(user_id);
+create index if not exists tasks_user_area_id_idx on public.tasks(user_id, area_id);
 create index if not exists tasks_user_project_id_idx on public.tasks(user_id, project_id);
 create index if not exists tasks_user_status_idx on public.tasks(user_id, status);
 create index if not exists inbox_items_user_archived_idx on public.inbox_items(user_id, archived);

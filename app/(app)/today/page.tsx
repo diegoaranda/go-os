@@ -15,21 +15,25 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import {
+  listAreas,
   listActiveTodayTasks,
   listProjects,
   updateTask,
 } from "@/lib/supabase/data"
-import type { Project, Task } from "@/lib/types"
+import type { Area, Project, Task } from "@/lib/types"
 
 const todayFilters = ["Todas", "En curso", "Pendientes"] as const
 type TodayFilter = (typeof todayFilters)[number]
+const NONE = "none"
 
 export default function TodayPage() {
   const [tasks, setTasks] = useState<Task[]>([])
+  const [areas, setAreas] = useState<Area[]>([])
   const [projects, setProjects] = useState<Project[]>([])
   const [filter, setFilter] = useState<TodayFilter>("Todas")
   const [editing, setEditing] = useState<string | null>(null)
   const [editTitle, setEditTitle] = useState("")
+  const [editAreaId, setEditAreaId] = useState("")
   const [editProjectId, setEditProjectId] = useState("")
   const [isLoading, setIsLoading] = useState(true)
   const [pendingTaskId, setPendingTaskId] = useState<string | null>(null)
@@ -40,11 +44,13 @@ export default function TodayPage() {
 
     async function loadToday() {
       try {
-        const [nextProjects, nextTasks] = await Promise.all([
+        const [nextAreas, nextProjects, nextTasks] = await Promise.all([
+          listAreas(),
           listProjects(),
           listActiveTodayTasks(),
         ])
         if (cancelled) return
+        setAreas(nextAreas)
         setProjects(nextProjects)
         setTasks(nextTasks)
       } catch (caught) {
@@ -64,8 +70,13 @@ export default function TodayPage() {
   }, [])
 
   const projectName = useCallback(
-    (id: string) => projects.find((project) => project.id === id)?.name ?? "Sin proyecto",
+    (id?: string | null) =>
+      projects.find((project) => project.id === id)?.name ?? "Sin proyecto",
     [projects],
+  )
+  const areaName = useCallback(
+    (id?: string | null) => areas.find((area) => area.id === id)?.name ?? "Sin área",
+    [areas],
   )
 
   const refreshTasks = async () => {
@@ -76,7 +87,8 @@ export default function TodayPage() {
   const startEditing = (task: Task) => {
     setEditing(task.id)
     setEditTitle(task.title)
-    setEditProjectId(task.projectId)
+    setEditAreaId(task.areaId ?? "")
+    setEditProjectId(task.projectId ?? "")
   }
 
   const markTask = async (task: Task, status: Task["status"]) => {
@@ -102,11 +114,13 @@ export default function TodayPage() {
     try {
       await updateTask(task.id, {
         title,
-        projectId: editProjectId || task.projectId,
+        areaId: editAreaId || null,
+        projectId: editProjectId || null,
       })
       await refreshTasks()
       setEditing(null)
       setEditTitle("")
+      setEditAreaId("")
       setEditProjectId("")
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "No se pudo editar la tarea.")
@@ -120,6 +134,9 @@ export default function TodayPage() {
     if (filter === "Pendientes") return task.status === "Pendiente"
     return true
   })
+  const filteredEditProjects = editAreaId
+    ? projects.filter((project) => project.areaId === editAreaId)
+    : projects
 
   return (
     <div className="space-y-6">
@@ -195,8 +212,45 @@ export default function TodayPage() {
                       aria-label="Editar título de tarea"
                     />
                     <Select
-                      value={editProjectId}
-                      onValueChange={(value) => setEditProjectId(value ?? "")}
+                      value={editAreaId || NONE}
+                      onValueChange={(value) => {
+                        const areaId = value === NONE ? "" : value ?? editAreaId
+                        const currentProject = projects.find(
+                          (project) => project.id === editProjectId,
+                        )
+                        setEditAreaId(areaId)
+                        if (areaId && currentProject?.areaId !== areaId) {
+                          setEditProjectId("")
+                        }
+                      }}
+                    >
+                      <SelectTrigger
+                        className="w-full lg:w-[200px]"
+                        aria-label="Área asociada"
+                      >
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value={NONE}>Sin área</SelectItem>
+                        {areas.map((area) => (
+                          <SelectItem key={area.id} value={area.id}>
+                            {area.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <Select
+                      value={editProjectId || NONE}
+                      onValueChange={(value) => {
+                        if (value === NONE) {
+                          setEditProjectId("")
+                          return
+                        }
+
+                        const project = projects.find((item) => item.id === value)
+                        setEditProjectId(value ?? "")
+                        if (project?.areaId) setEditAreaId(project.areaId)
+                      }}
                     >
                       <SelectTrigger
                         className="w-full lg:w-[220px]"
@@ -205,7 +259,8 @@ export default function TodayPage() {
                         <SelectValue placeholder="Proyecto" />
                       </SelectTrigger>
                       <SelectContent>
-                        {projects.map((project) => (
+                        <SelectItem value={NONE}>Sin proyecto</SelectItem>
+                        {filteredEditProjects.map((project) => (
                           <SelectItem key={project.id} value={project.id}>
                             {project.name}
                           </SelectItem>
@@ -230,6 +285,7 @@ export default function TodayPage() {
                         onClick={() => {
                           setEditing(null)
                           setEditTitle("")
+                          setEditAreaId("")
                           setEditProjectId("")
                         }}
                         className="h-8 gap-1 text-muted-foreground"
@@ -242,7 +298,7 @@ export default function TodayPage() {
                 </Card>
               ) : (
                 <>
-                  <TaskRow task={task} projectName={projectName} />
+                  <TaskRow task={task} areaName={areaName} projectName={projectName} />
                   <div className="flex justify-end gap-2">
                     <Button
                       size="sm"

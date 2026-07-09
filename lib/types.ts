@@ -87,7 +87,8 @@ export type Task = {
   title: string
   status: TaskStatus
   priority: Priority
-  projectId: string
+  areaId?: string | null
+  projectId?: string | null
   due: string
   source: TaskSource
 }

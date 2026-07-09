@@ -4,16 +4,23 @@ import type { Task } from "@/lib/types"
 
 export function TaskRow({
   task,
+  areaName,
   projectName,
 }: {
   task: Task
-  projectName: (id: string) => string
+  areaName?: (id?: string | null) => string
+  projectName: (id?: string | null) => string
 }) {
   return (
     <div className="flex flex-col gap-3 rounded-lg border border-border bg-card p-4 sm:flex-row sm:items-center sm:justify-between">
       <div className="min-w-0 space-y-1.5">
         <p className="text-sm font-medium leading-snug">{task.title}</p>
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+          {task.areaId ? (
+            <span className="font-medium text-foreground/70">
+              {areaName ? areaName(task.areaId) : task.areaId}
+            </span>
+          ) : null}
           <span className="font-medium text-foreground/70">
             {projectName(task.projectId)}
           </span>
