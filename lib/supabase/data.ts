@@ -5,6 +5,9 @@ import type {
   Area,
   ClickUpMirrorAssignee,
   ClickUpMirrorTask,
+  ContentAsset,
+  ContentAssetFile,
+  ContentAssetVersion,
   ContentPlanningItem,
   ContentPublishingItem,
   ContentPost,
@@ -56,6 +59,26 @@ export type CreateContentResultItemInput = Omit<
   "id" | "createdAt" | "updatedAt"
 >
 export type UpdateContentResultItemInput = Partial<CreateContentResultItemInput>
+
+export type CreateContentAssetInput = Omit<
+  ContentAsset,
+  "id" | "currentVersionId" | "createdAt" | "updatedAt"
+>
+export type UpdateContentAssetInput = Partial<
+  Omit<ContentAsset, "id" | "createdAt" | "updatedAt">
+>
+export type ListContentAssetsFilters = Partial<
+  Pick<ContentAsset, "brand" | "assetType" | "status" | "channel">
+>
+export type CreateContentAssetVersionInput = Omit<
+  ContentAssetVersion,
+  "id" | "assetId" | "versionNumber" | "createdAt"
+>
+export type UpdateContentAssetVersionInput = Partial<CreateContentAssetVersionInput>
+export type CreateContentAssetFileInput = Omit<
+  ContentAssetFile,
+  "id" | "assetId" | "createdAt"
+>
 
 export type UpsertWeeklyReviewInput = Pick<WeeklyReview, "weekStart" | "note">
 
@@ -191,6 +214,61 @@ type ContentResultItemRow = {
   updated_at: string
 }
 
+type ContentAssetRow = {
+  id: string
+  user_id: string
+  brand: string
+  title: string
+  slug: string | null
+  asset_type: string
+  status: ContentAsset["status"]
+  channel: string | null
+  product_name: string | null
+  campaign_name: string | null
+  content_pillar: string | null
+  objective: string | null
+  current_version_id: string | null
+  cover_image_url: string | null
+  notes: string | null
+  created_at: string
+  updated_at: string
+}
+
+type ContentAssetVersionRow = {
+  id: string
+  asset_id: string
+  user_id: string
+  version_number: number
+  title: string | null
+  hook: string | null
+  body_copy: string | null
+  caption: string | null
+  cta: string | null
+  hashtags: string | null
+  offer_text: string | null
+  design_brief: string | null
+  image_url: string | null
+  image_alt_urls: unknown
+  status: ContentAssetVersion["status"]
+  change_summary: string | null
+  created_by: string | null
+  created_at: string
+}
+
+type ContentAssetFileRow = {
+  id: string
+  asset_id: string
+  version_id: string | null
+  user_id: string
+  file_type: string
+  file_url: string
+  file_name: string
+  mime_type: string | null
+  size_bytes: number | null
+  is_primary: boolean
+  created_at: string
+}
+
 type ClickUpMirrorTaskRow = {
   id: string
   user_id: string
@@ -295,6 +373,58 @@ type ContentPostMutationRow = Pick<
   | "project_id"
   | "area_id"
   | "notes"
+>
+
+type ContentAssetMutationRow = Pick<
+  ContentAssetRow,
+  | "user_id"
+  | "brand"
+  | "title"
+  | "slug"
+  | "asset_type"
+  | "status"
+  | "channel"
+  | "product_name"
+  | "campaign_name"
+  | "content_pillar"
+  | "objective"
+  | "current_version_id"
+  | "cover_image_url"
+  | "notes"
+>
+
+type ContentAssetVersionMutationRow = Pick<
+  ContentAssetVersionRow,
+  | "asset_id"
+  | "user_id"
+  | "version_number"
+  | "title"
+  | "hook"
+  | "body_copy"
+  | "caption"
+  | "cta"
+  | "hashtags"
+  | "offer_text"
+  | "design_brief"
+  | "image_url"
+  | "status"
+  | "change_summary"
+  | "created_by"
+> & {
+  image_alt_urls: string[] | null
+}
+
+type ContentAssetFileMutationRow = Pick<
+  ContentAssetFileRow,
+  | "asset_id"
+  | "version_id"
+  | "user_id"
+  | "file_type"
+  | "file_url"
+  | "file_name"
+  | "mime_type"
+  | "size_bytes"
+  | "is_primary"
 >
 
 async function getAuthenticatedUserId(client: SupabaseClient) {
@@ -588,6 +718,69 @@ function mapContentResultItemRow(row: ContentResultItemRow): ContentResultItem {
   }
 }
 
+function normalizeStringArray(value: unknown) {
+  if (!Array.isArray(value)) return []
+  return value.flatMap((item) => (typeof item === "string" ? [item] : []))
+}
+
+function mapContentAssetRow(row: ContentAssetRow): ContentAsset {
+  return {
+    id: row.id,
+    brand: row.brand,
+    title: row.title,
+    slug: row.slug ?? "",
+    assetType: row.asset_type,
+    status: row.status,
+    channel: row.channel ?? "",
+    productName: row.product_name ?? "",
+    campaignName: row.campaign_name ?? "",
+    contentPillar: row.content_pillar ?? "",
+    objective: row.objective ?? "",
+    currentVersionId: row.current_version_id ?? "",
+    coverImageUrl: row.cover_image_url ?? "",
+    notes: row.notes ?? "",
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  }
+}
+
+function mapContentAssetVersionRow(row: ContentAssetVersionRow): ContentAssetVersion {
+  return {
+    id: row.id,
+    assetId: row.asset_id,
+    versionNumber: row.version_number,
+    title: row.title ?? "",
+    hook: row.hook ?? "",
+    bodyCopy: row.body_copy ?? "",
+    caption: row.caption ?? "",
+    cta: row.cta ?? "",
+    hashtags: row.hashtags ?? "",
+    offerText: row.offer_text ?? "",
+    designBrief: row.design_brief ?? "",
+    imageUrl: row.image_url ?? "",
+    imageAltUrls: normalizeStringArray(row.image_alt_urls),
+    status: row.status,
+    changeSummary: row.change_summary ?? "",
+    createdBy: row.created_by ?? "",
+    createdAt: row.created_at,
+  }
+}
+
+function mapContentAssetFileRow(row: ContentAssetFileRow): ContentAssetFile {
+  return {
+    id: row.id,
+    assetId: row.asset_id,
+    versionId: row.version_id ?? "",
+    fileType: row.file_type,
+    fileUrl: row.file_url,
+    fileName: row.file_name,
+    mimeType: row.mime_type ?? "",
+    sizeBytes: row.size_bytes,
+    isPrimary: row.is_primary,
+    createdAt: row.created_at,
+  }
+}
+
 function normalizeClickUpAssignees(value: unknown): ClickUpMirrorAssignee[] {
   if (!Array.isArray(value)) return []
 
@@ -765,6 +958,114 @@ function mapContentResultItemUpdate(input: UpdateContentResultItemInput) {
   if (input.notes !== undefined) update.notes = input.notes || null
 
   return update
+}
+
+function mapContentAssetInput(
+  input: CreateContentAssetInput,
+  userId: string,
+): ContentAssetMutationRow {
+  return {
+    user_id: userId,
+    brand: input.brand,
+    title: input.title,
+    slug: input.slug || null,
+    asset_type: input.assetType,
+    status: input.status,
+    channel: input.channel || null,
+    product_name: input.productName || null,
+    campaign_name: input.campaignName || null,
+    content_pillar: input.contentPillar || null,
+    objective: input.objective || null,
+    current_version_id: null,
+    cover_image_url: input.coverImageUrl || null,
+    notes: input.notes || null,
+  }
+}
+
+function mapContentAssetUpdate(input: UpdateContentAssetInput) {
+  const update: Partial<ContentAssetMutationRow> = {}
+
+  if (input.brand !== undefined) update.brand = input.brand
+  if (input.title !== undefined) update.title = input.title
+  if (input.slug !== undefined) update.slug = input.slug || null
+  if (input.assetType !== undefined) update.asset_type = input.assetType
+  if (input.status !== undefined) update.status = input.status
+  if (input.channel !== undefined) update.channel = input.channel || null
+  if (input.productName !== undefined) update.product_name = input.productName || null
+  if (input.campaignName !== undefined) update.campaign_name = input.campaignName || null
+  if (input.contentPillar !== undefined) update.content_pillar = input.contentPillar || null
+  if (input.objective !== undefined) update.objective = input.objective || null
+  if (input.currentVersionId !== undefined) update.current_version_id = input.currentVersionId || null
+  if (input.coverImageUrl !== undefined) update.cover_image_url = input.coverImageUrl || null
+  if (input.notes !== undefined) update.notes = input.notes || null
+
+  return update
+}
+
+function mapContentAssetVersionInput(
+  assetId: string,
+  input: CreateContentAssetVersionInput,
+  userId: string,
+  versionNumber: number,
+): ContentAssetVersionMutationRow {
+  return {
+    asset_id: assetId,
+    user_id: userId,
+    version_number: versionNumber,
+    title: input.title || null,
+    hook: input.hook || null,
+    body_copy: input.bodyCopy || null,
+    caption: input.caption || null,
+    cta: input.cta || null,
+    hashtags: input.hashtags || null,
+    offer_text: input.offerText || null,
+    design_brief: input.designBrief || null,
+    image_url: input.imageUrl || null,
+    image_alt_urls: input.imageAltUrls.length > 0 ? input.imageAltUrls : null,
+    status: input.status,
+    change_summary: input.changeSummary || null,
+    created_by: input.createdBy || null,
+  }
+}
+
+function mapContentAssetVersionUpdate(input: UpdateContentAssetVersionInput) {
+  const update: Partial<Omit<ContentAssetVersionMutationRow, "asset_id" | "user_id" | "version_number">> = {}
+
+  if (input.title !== undefined) update.title = input.title || null
+  if (input.hook !== undefined) update.hook = input.hook || null
+  if (input.bodyCopy !== undefined) update.body_copy = input.bodyCopy || null
+  if (input.caption !== undefined) update.caption = input.caption || null
+  if (input.cta !== undefined) update.cta = input.cta || null
+  if (input.hashtags !== undefined) update.hashtags = input.hashtags || null
+  if (input.offerText !== undefined) update.offer_text = input.offerText || null
+  if (input.designBrief !== undefined) update.design_brief = input.designBrief || null
+  if (input.imageUrl !== undefined) update.image_url = input.imageUrl || null
+  if (input.imageAltUrls !== undefined) {
+    update.image_alt_urls = input.imageAltUrls.length > 0 ? input.imageAltUrls : null
+  }
+  if (input.status !== undefined) update.status = input.status
+  if (input.changeSummary !== undefined) update.change_summary = input.changeSummary || null
+  if (input.createdBy !== undefined) update.created_by = input.createdBy || null
+
+  return update
+}
+
+function mapContentAssetFileInput(
+  assetId: string,
+  input: CreateContentAssetFileInput,
+  userId: string,
+): ContentAssetFileMutationRow {
+  return {
+    asset_id: assetId,
+    version_id: input.versionId || null,
+    user_id: userId,
+    file_type: input.fileType,
+    file_url: input.fileUrl,
+    file_name: input.fileName,
+    mime_type: input.mimeType || null,
+    size_bytes: input.sizeBytes,
+    is_primary: input.isPrimary,
+  }
 }
 
 export async function listProjects() {
@@ -1206,6 +1507,254 @@ export async function deleteLibraryItem(id: string) {
     .from("library_items")
     .delete()
     .eq("id", id)
+    .eq("user_id", userId)
+
+  if (error) throw error
+}
+
+export async function listContentAssets(filters: ListContentAssetsFilters = {}) {
+  const client = getSupabaseClient()
+  const userId = await getAuthenticatedUserId(client)
+  let query = client
+    .from("content_assets")
+    .select("*")
+    .eq("user_id", userId)
+
+  if (filters.brand) query = query.eq("brand", filters.brand)
+  if (filters.assetType) query = query.eq("asset_type", filters.assetType)
+  if (filters.status) query = query.eq("status", filters.status)
+  if (filters.channel) query = query.eq("channel", filters.channel)
+
+  const { data, error } = await query.order("updated_at", { ascending: false })
+
+  if (error) throw error
+
+  return (data as ContentAssetRow[]).map(mapContentAssetRow)
+}
+
+export async function getContentAsset(id: string) {
+  const client = getSupabaseClient()
+  const userId = await getAuthenticatedUserId(client)
+  const { data, error } = await client
+    .from("content_assets")
+    .select("*")
+    .eq("id", id)
+    .eq("user_id", userId)
+    .maybeSingle()
+
+  if (error) throw error
+  if (!data) return null
+
+  return mapContentAssetRow(data as ContentAssetRow)
+}
+
+export async function createContentAsset(input: CreateContentAssetInput) {
+  const client = getSupabaseClient()
+  const userId = await getAuthenticatedUserId(client)
+  const { data, error } = await client
+    .from("content_assets")
+    .insert(mapContentAssetInput(input, userId))
+    .select("*")
+    .single()
+
+  if (error) throw error
+
+  return mapContentAssetRow(data as ContentAssetRow)
+}
+
+export async function updateContentAsset(
+  id: string,
+  input: UpdateContentAssetInput,
+) {
+  const client = getSupabaseClient()
+  const userId = await getAuthenticatedUserId(client)
+  const update = mapContentAssetUpdate(input)
+  const query =
+    Object.keys(update).length > 0
+      ? client
+          .from("content_assets")
+          .update(update)
+          .eq("id", id)
+          .eq("user_id", userId)
+          .select("*")
+      : client.from("content_assets").select("*").eq("id", id).eq("user_id", userId)
+
+  const { data, error } = await query.single()
+
+  if (error) throw error
+
+  return mapContentAssetRow(data as ContentAssetRow)
+}
+
+export async function deleteContentAsset(id: string) {
+  const client = getSupabaseClient()
+  const userId = await getAuthenticatedUserId(client)
+  const { error } = await client
+    .from("content_assets")
+    .delete()
+    .eq("id", id)
+    .eq("user_id", userId)
+
+  if (error) throw error
+}
+
+export async function listContentAssetVersions(assetId: string) {
+  const client = getSupabaseClient()
+  const userId = await getAuthenticatedUserId(client)
+  const { data, error } = await client
+    .from("content_asset_versions")
+    .select("*")
+    .eq("asset_id", assetId)
+    .eq("user_id", userId)
+    .order("version_number", { ascending: false })
+
+  if (error) throw error
+
+  return (data as ContentAssetVersionRow[]).map(mapContentAssetVersionRow)
+}
+
+export async function createContentAssetVersion(
+  assetId: string,
+  input: CreateContentAssetVersionInput,
+) {
+  const client = getSupabaseClient()
+  const userId = await getAuthenticatedUserId(client)
+  const { data: assetData, error: assetError } = await client
+    .from("content_assets")
+    .select("id,current_version_id")
+    .eq("id", assetId)
+    .eq("user_id", userId)
+    .single()
+
+  if (assetError) throw assetError
+
+  const { data: latestData, error: latestError } = await client
+    .from("content_asset_versions")
+    .select("version_number")
+    .eq("asset_id", assetId)
+    .eq("user_id", userId)
+    .order("version_number", { ascending: false })
+    .limit(1)
+
+  if (latestError) throw latestError
+
+  const latestVersion = (latestData as Pick<ContentAssetVersionRow, "version_number">[])[0]
+  const nextVersionNumber = (latestVersion?.version_number ?? 0) + 1
+
+  const { data, error } = await client
+    .from("content_asset_versions")
+    .insert(mapContentAssetVersionInput(assetId, input, userId, nextVersionNumber))
+    .select("*")
+    .single()
+
+  if (error) throw error
+
+  const version = mapContentAssetVersionRow(data as ContentAssetVersionRow)
+
+  if (!(assetData as { current_version_id: string | null }).current_version_id) {
+    await setContentAssetCurrentVersion(assetId, version.id)
+  }
+
+  return version
+}
+
+export async function updateContentAssetVersion(
+  versionId: string,
+  input: UpdateContentAssetVersionInput,
+) {
+  const client = getSupabaseClient()
+  const userId = await getAuthenticatedUserId(client)
+  const update = mapContentAssetVersionUpdate(input)
+  const query =
+    Object.keys(update).length > 0
+      ? client
+          .from("content_asset_versions")
+          .update(update)
+          .eq("id", versionId)
+          .eq("user_id", userId)
+          .select("*")
+      : client
+          .from("content_asset_versions")
+          .select("*")
+          .eq("id", versionId)
+          .eq("user_id", userId)
+
+  const { data, error } = await query.single()
+
+  if (error) throw error
+
+  return mapContentAssetVersionRow(data as ContentAssetVersionRow)
+}
+
+export async function setContentAssetCurrentVersion(
+  assetId: string,
+  versionId: string,
+) {
+  const client = getSupabaseClient()
+  const userId = await getAuthenticatedUserId(client)
+  const { data: versionData, error: versionError } = await client
+    .from("content_asset_versions")
+    .select("id")
+    .eq("id", versionId)
+    .eq("asset_id", assetId)
+    .eq("user_id", userId)
+    .single()
+
+  if (versionError) throw versionError
+  if (!versionData) throw new Error("No se encontró la versión.")
+
+  const { data, error } = await client
+    .from("content_assets")
+    .update({ current_version_id: versionId })
+    .eq("id", assetId)
+    .eq("user_id", userId)
+    .select("*")
+    .single()
+
+  if (error) throw error
+
+  return mapContentAssetRow(data as ContentAssetRow)
+}
+
+export async function listContentAssetFiles(assetId: string) {
+  const client = getSupabaseClient()
+  const userId = await getAuthenticatedUserId(client)
+  const { data, error } = await client
+    .from("content_asset_files")
+    .select("*")
+    .eq("asset_id", assetId)
+    .eq("user_id", userId)
+    .order("created_at", { ascending: false })
+
+  if (error) throw error
+
+  return (data as ContentAssetFileRow[]).map(mapContentAssetFileRow)
+}
+
+export async function createContentAssetFile(
+  assetId: string,
+  input: CreateContentAssetFileInput,
+) {
+  const client = getSupabaseClient()
+  const userId = await getAuthenticatedUserId(client)
+  const { data, error } = await client
+    .from("content_asset_files")
+    .insert(mapContentAssetFileInput(assetId, input, userId))
+    .select("*")
+    .single()
+
+  if (error) throw error
+
+  return mapContentAssetFileRow(data as ContentAssetFileRow)
+}
+
+export async function deleteContentAssetFile(fileId: string) {
+  const client = getSupabaseClient()
+  const userId = await getAuthenticatedUserId(client)
+  const { error } = await client
+    .from("content_asset_files")
+    .delete()
+    .eq("id", fileId)
     .eq("user_id", userId)
 
   if (error) throw error

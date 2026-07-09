@@ -123,6 +123,87 @@ create table if not exists public.content_posts (
   updated_at timestamptz not null default now()
 );
 
+create table if not exists public.content_assets (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  brand text not null,
+  title text not null,
+  slug text,
+  asset_type text not null,
+  status text not null default 'draft'
+    check (status in ('draft', 'in_review', 'approved', 'published', 'archived')),
+  channel text,
+  product_name text,
+  campaign_name text,
+  content_pillar text,
+  objective text,
+  current_version_id uuid,
+  cover_image_url text,
+  notes text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create table if not exists public.content_asset_versions (
+  id uuid primary key default gen_random_uuid(),
+  asset_id uuid not null references public.content_assets(id) on delete cascade,
+  user_id uuid not null references auth.users(id) on delete cascade,
+  version_number integer not null,
+  title text,
+  hook text,
+  body_copy text,
+  caption text,
+  cta text,
+  hashtags text,
+  offer_text text,
+  design_brief text,
+  image_url text,
+  image_alt_urls jsonb,
+  status text not null default 'draft'
+    check (status in ('draft', 'approved', 'rejected', 'published')),
+  change_summary text,
+  created_by text,
+  created_at timestamptz not null default now(),
+  unique (asset_id, version_number)
+);
+
+create table if not exists public.content_asset_files (
+  id uuid primary key default gen_random_uuid(),
+  asset_id uuid not null references public.content_assets(id) on delete cascade,
+  version_id uuid references public.content_asset_versions(id) on delete set null,
+  user_id uuid not null references auth.users(id) on delete cascade,
+  file_type text not null,
+  file_url text not null,
+  file_name text not null,
+  mime_type text,
+  size_bytes bigint,
+  is_primary boolean not null default false,
+  created_at timestamptz not null default now()
+);
+
+-- Storage note: Fase 1 stores manual file/image URLs.
+-- Create a private "content-assets" Supabase Storage bucket manually before enabling direct uploads.
+
+do $$
+begin
+  if not exists (
+    select 1
+    from pg_constraint
+    where conname = 'content_assets_current_version_id_fkey'
+      and conrelid = 'public.content_assets'::regclass
+  ) then
+    alter table public.content_assets
+    add constraint content_assets_current_version_id_fkey
+    foreign key (current_version_id)
+    references public.content_asset_versions(id)
+    on delete set null;
+  end if;
+end;
+$$;
+
+alter table public.content_posts
+add column if not exists content_asset_id uuid references public.content_assets(id) on delete set null;
+
 create table if not exists public.content_planning_items (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references auth.users(id) on delete cascade,
@@ -213,6 +294,15 @@ create index if not exists content_posts_user_status_idx on public.content_posts
 create index if not exists content_posts_user_channel_idx on public.content_posts(user_id, channel);
 create index if not exists content_posts_user_project_id_idx on public.content_posts(user_id, project_id);
 create index if not exists content_posts_user_area_id_idx on public.content_posts(user_id, area_id);
+create index if not exists content_posts_user_content_asset_id_idx on public.content_posts(user_id, content_asset_id);
+create index if not exists content_assets_user_id_idx on public.content_assets(user_id);
+create index if not exists content_assets_brand_idx on public.content_assets(brand);
+create index if not exists content_assets_status_idx on public.content_assets(status);
+create index if not exists content_assets_asset_type_idx on public.content_assets(asset_type);
+create index if not exists content_asset_versions_asset_id_idx on public.content_asset_versions(asset_id);
+create index if not exists content_asset_versions_user_id_idx on public.content_asset_versions(user_id);
+create index if not exists content_asset_files_asset_id_idx on public.content_asset_files(asset_id);
+create index if not exists content_asset_files_user_id_idx on public.content_asset_files(user_id);
 create index if not exists content_planning_items_user_brand_idx on public.content_planning_items(user_id, brand);
 create index if not exists content_planning_items_user_week_idx on public.content_planning_items(user_id, week_label);
 create index if not exists content_planning_items_user_target_date_idx on public.content_planning_items(user_id, target_date);
@@ -253,6 +343,11 @@ create trigger set_content_posts_updated_at
 before update on public.content_posts
 for each row execute function public.set_updated_at();
 
+drop trigger if exists set_content_assets_updated_at on public.content_assets;
+create trigger set_content_assets_updated_at
+before update on public.content_assets
+for each row execute function public.set_updated_at();
+
 drop trigger if exists set_content_planning_items_updated_at on public.content_planning_items;
 create trigger set_content_planning_items_updated_at
 before update on public.content_planning_items
@@ -280,6 +375,9 @@ alter table public.inbox_items enable row level security;
 alter table public.library_items enable row level security;
 alter table public.weekly_reviews enable row level security;
 alter table public.content_posts enable row level security;
+alter table public.content_assets enable row level security;
+alter table public.content_asset_versions enable row level security;
+alter table public.content_asset_files enable row level security;
 alter table public.content_planning_items enable row level security;
 alter table public.content_publishing_items enable row level security;
 alter table public.content_results enable row level security;
@@ -527,6 +625,15 @@ with check (
         and projects.user_id = auth.uid()
     )
   )
+  and (
+    content_asset_id is null
+    or exists (
+      select 1
+      from public.content_assets
+      where content_assets.id = content_posts.content_asset_id
+        and content_assets.user_id = auth.uid()
+    )
+  )
 );
 
 drop policy if exists "Users can update their own content posts" on public.content_posts;
@@ -554,11 +661,147 @@ with check (
         and projects.user_id = auth.uid()
     )
   )
+  and (
+    content_asset_id is null
+    or exists (
+      select 1
+      from public.content_assets
+      where content_assets.id = content_posts.content_asset_id
+        and content_assets.user_id = auth.uid()
+    )
+  )
 );
 
 drop policy if exists "Users can delete their own content posts" on public.content_posts;
 create policy "Users can delete their own content posts"
 on public.content_posts for delete
+to authenticated
+using (auth.uid() = user_id);
+
+drop policy if exists "Users can view their own content assets" on public.content_assets;
+create policy "Users can view their own content assets"
+on public.content_assets for select
+to authenticated
+using (auth.uid() = user_id);
+
+drop policy if exists "Users can insert their own content assets" on public.content_assets;
+create policy "Users can insert their own content assets"
+on public.content_assets for insert
+to authenticated
+with check (auth.uid() = user_id);
+
+drop policy if exists "Users can update their own content assets" on public.content_assets;
+create policy "Users can update their own content assets"
+on public.content_assets for update
+to authenticated
+using (auth.uid() = user_id)
+with check (auth.uid() = user_id);
+
+drop policy if exists "Users can delete their own content assets" on public.content_assets;
+create policy "Users can delete their own content assets"
+on public.content_assets for delete
+to authenticated
+using (auth.uid() = user_id);
+
+drop policy if exists "Users can view their own content asset versions" on public.content_asset_versions;
+create policy "Users can view their own content asset versions"
+on public.content_asset_versions for select
+to authenticated
+using (auth.uid() = user_id);
+
+drop policy if exists "Users can insert their own content asset versions" on public.content_asset_versions;
+create policy "Users can insert their own content asset versions"
+on public.content_asset_versions for insert
+to authenticated
+with check (
+  auth.uid() = user_id
+  and exists (
+    select 1
+    from public.content_assets
+    where content_assets.id = content_asset_versions.asset_id
+      and content_assets.user_id = auth.uid()
+  )
+);
+
+drop policy if exists "Users can update their own content asset versions" on public.content_asset_versions;
+create policy "Users can update their own content asset versions"
+on public.content_asset_versions for update
+to authenticated
+using (auth.uid() = user_id)
+with check (
+  auth.uid() = user_id
+  and exists (
+    select 1
+    from public.content_assets
+    where content_assets.id = content_asset_versions.asset_id
+      and content_assets.user_id = auth.uid()
+  )
+);
+
+drop policy if exists "Users can delete their own content asset versions" on public.content_asset_versions;
+create policy "Users can delete their own content asset versions"
+on public.content_asset_versions for delete
+to authenticated
+using (auth.uid() = user_id);
+
+drop policy if exists "Users can view their own content asset files" on public.content_asset_files;
+create policy "Users can view their own content asset files"
+on public.content_asset_files for select
+to authenticated
+using (auth.uid() = user_id);
+
+drop policy if exists "Users can insert their own content asset files" on public.content_asset_files;
+create policy "Users can insert their own content asset files"
+on public.content_asset_files for insert
+to authenticated
+with check (
+  auth.uid() = user_id
+  and exists (
+    select 1
+    from public.content_assets
+    where content_assets.id = content_asset_files.asset_id
+      and content_assets.user_id = auth.uid()
+  )
+  and (
+    version_id is null
+    or exists (
+      select 1
+      from public.content_asset_versions
+      where content_asset_versions.id = content_asset_files.version_id
+        and content_asset_versions.asset_id = content_asset_files.asset_id
+        and content_asset_versions.user_id = auth.uid()
+    )
+  )
+);
+
+drop policy if exists "Users can update their own content asset files" on public.content_asset_files;
+create policy "Users can update their own content asset files"
+on public.content_asset_files for update
+to authenticated
+using (auth.uid() = user_id)
+with check (
+  auth.uid() = user_id
+  and exists (
+    select 1
+    from public.content_assets
+    where content_assets.id = content_asset_files.asset_id
+      and content_assets.user_id = auth.uid()
+  )
+  and (
+    version_id is null
+    or exists (
+      select 1
+      from public.content_asset_versions
+      where content_asset_versions.id = content_asset_files.version_id
+        and content_asset_versions.asset_id = content_asset_files.asset_id
+        and content_asset_versions.user_id = auth.uid()
+    )
+  )
+);
+
+drop policy if exists "Users can delete their own content asset files" on public.content_asset_files;
+create policy "Users can delete their own content asset files"
+on public.content_asset_files for delete
 to authenticated
 using (auth.uid() = user_id);
 

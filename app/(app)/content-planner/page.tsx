@@ -846,7 +846,7 @@ export default function ContentPlannerPage() {
         ? contentPublishingStatuses
         : []
 
-  const selectWeekFilter = (value: string) => {
+  const selectWeekFilter = (value: string | null) => {
     if (value === ALL || !value) {
       setWeekFilter("")
       return

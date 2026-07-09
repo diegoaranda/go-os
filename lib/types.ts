@@ -36,6 +36,35 @@ export type ContentPlanningStatus =
 
 export type ContentPublishingStatus = "pendiente" | "programado" | "publicado"
 
+export type ContentAssetStatus =
+  | "draft"
+  | "in_review"
+  | "approved"
+  | "published"
+  | "archived"
+
+export type ContentAssetVersionStatus =
+  | "draft"
+  | "approved"
+  | "rejected"
+  | "published"
+
+export type ContentAssetType =
+  | "product_copy"
+  | "campaign_post"
+  | "catalog_copy"
+  | "whatsapp_copy"
+  | "ad_creative"
+  | "web_copy"
+
+export type ContentAssetChannel =
+  | "facebook"
+  | "instagram"
+  | "whatsapp"
+  | "web"
+  | "meta_ads"
+  | "email"
+
 export type Area = {
   id: string
   name: string
@@ -152,6 +181,58 @@ export type ContentResultItem = {
   updatedAt: string
 }
 
+export type ContentAsset = {
+  id: string
+  brand: string
+  title: string
+  slug: string
+  assetType: ContentAssetType | string
+  status: ContentAssetStatus
+  channel: ContentAssetChannel | string
+  productName: string
+  campaignName: string
+  contentPillar: string
+  objective: string
+  currentVersionId: string
+  coverImageUrl: string
+  notes: string
+  createdAt: string
+  updatedAt: string
+}
+
+export type ContentAssetVersion = {
+  id: string
+  assetId: string
+  versionNumber: number
+  title: string
+  hook: string
+  bodyCopy: string
+  caption: string
+  cta: string
+  hashtags: string
+  offerText: string
+  designBrief: string
+  imageUrl: string
+  imageAltUrls: string[]
+  status: ContentAssetVersionStatus
+  changeSummary: string
+  createdBy: string
+  createdAt: string
+}
+
+export type ContentAssetFile = {
+  id: string
+  assetId: string
+  versionId: string
+  fileType: string
+  fileUrl: string
+  fileName: string
+  mimeType: string
+  sizeBytes: number | null
+  isPrimary: boolean
+  createdAt: string
+}
+
 export type ClickUpMirrorAssignee = {
   id: string
   name: string
@@ -265,6 +346,39 @@ export const operativeTaskStatuses: TaskStatus[] = [
 ]
 
 export const libraryItemTypes: LibraryItemType[] = ["note", "link", "resource", "email"]
+
+export const contentAssetStatuses: ContentAssetStatus[] = [
+  "draft",
+  "in_review",
+  "approved",
+  "published",
+  "archived",
+]
+
+export const contentAssetVersionStatuses: ContentAssetVersionStatus[] = [
+  "draft",
+  "approved",
+  "rejected",
+  "published",
+]
+
+export const contentAssetTypes: ContentAssetType[] = [
+  "product_copy",
+  "campaign_post",
+  "catalog_copy",
+  "whatsapp_copy",
+  "ad_creative",
+  "web_copy",
+]
+
+export const contentAssetChannels: ContentAssetChannel[] = [
+  "facebook",
+  "instagram",
+  "whatsapp",
+  "web",
+  "meta_ads",
+  "email",
+]
 
 export const contentPostStatuses: ContentPostStatus[] = [
   "Idea",
