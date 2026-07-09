@@ -72,7 +72,7 @@ export function Sidebar() {
   return (
     <aside
       className={cn(
-        "hidden md:sticky md:top-0 md:flex md:h-screen md:shrink-0 md:flex-col md:border-r md:border-border md:bg-sidebar md:transition-[width]",
+        "hidden md:sticky md:top-0 md:flex md:h-screen md:shrink-0 md:flex-col md:border-r md:border-border md:bg-sidebar",
         isCollapsed ? "md:w-[4.5rem]" : "md:w-60",
       )}
     >
@@ -117,7 +117,7 @@ export function Sidebar() {
               title={item.label}
               aria-label={item.label}
               className={cn(
-                "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors",
+                "motion-nav-item flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium",
                 isCollapsed && "size-10 justify-center px-0 py-0",
                 active
                   ? "bg-sidebar-accent text-sidebar-accent-foreground"
@@ -164,7 +164,7 @@ export function BottomNav() {
               href={item.href}
               title={item.label}
               className={cn(
-                "flex min-w-[4.75rem] flex-none flex-col items-center gap-1 rounded-md px-2 py-2 text-[10px] font-medium",
+                "motion-standard flex min-w-[4.75rem] flex-none flex-col items-center gap-1 rounded-md px-2 py-2 text-[10px] font-medium transition-colors",
                 active ? "text-primary" : "text-muted-foreground",
               )}
             >

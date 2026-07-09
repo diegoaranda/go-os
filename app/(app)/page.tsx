@@ -24,7 +24,7 @@ type MetricCardProps = {
 
 function MetricCard({ label, value, icon: Icon }: MetricCardProps) {
   return (
-    <Card>
+    <Card className="motion-surface">
       <CardContent className="flex items-center justify-between gap-4 p-4">
         <div>
           <p className="text-2xl font-semibold tabular-nums">{value}</p>
@@ -163,13 +163,13 @@ export default function DashboardPage() {
       />
 
       {error ? (
-        <Card>
+        <Card className="motion-enter">
           <CardContent className="py-4 text-sm text-destructive">{error}</CardContent>
         </Card>
       ) : null}
 
       {isLoading ? (
-        <Card>
+        <Card className="motion-enter">
           <CardContent className="py-6 text-sm text-muted-foreground">
             Cargando dashboard...
           </CardContent>
@@ -221,7 +221,7 @@ export default function DashboardPage() {
                     {mirrorStatusCounts.map((item) => (
                       <div
                         key={item.key}
-                        className={`rounded-lg border p-4 ${mirrorStatusClass(item.label)}`}
+                        className={`motion-surface rounded-lg border p-4 ${mirrorStatusClass(item.label)}`}
                       >
                         <p className="text-sm font-medium">{item.label}</p>
                         <p className="mt-2 text-2xl font-semibold tabular-nums">
@@ -279,7 +279,7 @@ export default function DashboardPage() {
               <CardContent className="space-y-3">
                 {latestInboxItems.length > 0 ? (
                   latestInboxItems.map((item) => (
-                    <div key={item.id} className="rounded-lg border border-border bg-card p-3">
+                    <div key={item.id} className="motion-surface rounded-lg border border-border bg-card p-3">
                       <p className="line-clamp-2 text-sm font-medium">{item.content}</p>
                       <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                         <span>{item.createdAt}</span>
@@ -312,7 +312,7 @@ export default function DashboardPage() {
               <CardContent className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
                 {recentProjects.length > 0 ? (
                   recentProjects.map((project) => (
-                    <div key={project.id} className="rounded-lg border border-border bg-card p-4">
+                    <div key={project.id} className="motion-surface rounded-lg border border-border bg-card p-4">
                       <div className="flex items-start justify-between gap-3">
                         <div className="min-w-0">
                           <p className="truncate text-sm font-medium">{project.name}</p>

@@ -668,7 +668,7 @@ export default function ClickUpMirrorPage() {
         </div>
         <div className="flex items-center gap-2">
           <Button onClick={syncNow} disabled={syncing} className="gap-2">
-            <RefreshCw className={`size-4 ${syncing ? "animate-spin" : ""}`} />
+            <RefreshCw className={`size-4 ${syncing ? "animate-spin motion-reduce:animate-none" : ""}`} />
             {syncing ? "Sincronizando" : "Sincronizar ahora"}
           </Button>
         </div>
