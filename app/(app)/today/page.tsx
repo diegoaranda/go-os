@@ -20,7 +20,7 @@ import {
   listProjects,
   updateTask,
 } from "@/lib/supabase/data"
-import type { Area, Project, Task } from "@/lib/types"
+import { taskPriorities, type Area, type Project, type Task, type TaskPriority } from "@/lib/types"
 
 const todayFilters = ["Todas", "En curso", "Pendientes"] as const
 type TodayFilter = (typeof todayFilters)[number]
@@ -35,6 +35,7 @@ export default function TodayPage() {
   const [editTitle, setEditTitle] = useState("")
   const [editAreaId, setEditAreaId] = useState("")
   const [editProjectId, setEditProjectId] = useState("")
+  const [editPriority, setEditPriority] = useState<TaskPriority>("Media")
   const [isLoading, setIsLoading] = useState(true)
   const [pendingTaskId, setPendingTaskId] = useState<string | null>(null)
   const [error, setError] = useState("")
@@ -89,6 +90,7 @@ export default function TodayPage() {
     setEditTitle(task.title)
     setEditAreaId(task.areaId ?? "")
     setEditProjectId(task.projectId ?? "")
+    setEditPriority(task.priority)
   }
 
   const markTask = async (task: Task, status: Task["status"]) => {
@@ -116,12 +118,14 @@ export default function TodayPage() {
         title,
         areaId: editAreaId || null,
         projectId: editProjectId || null,
+        priority: editPriority,
       })
       await refreshTasks()
       setEditing(null)
       setEditTitle("")
       setEditAreaId("")
       setEditProjectId("")
+      setEditPriority("Media")
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "No se pudo editar la tarea.")
     } finally {
@@ -267,6 +271,24 @@ export default function TodayPage() {
                         ))}
                       </SelectContent>
                     </Select>
+                    <Select
+                      value={editPriority}
+                      onValueChange={(value) => setEditPriority(value as TaskPriority)}
+                    >
+                      <SelectTrigger
+                        className="w-full lg:w-[160px]"
+                        aria-label="Prioridad"
+                      >
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {taskPriorities.map((priority) => (
+                          <SelectItem key={priority} value={priority}>
+                            {priority}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                     <div className="flex shrink-0 items-center gap-2">
                       <Button
                         size="sm"
@@ -287,6 +309,7 @@ export default function TodayPage() {
                           setEditTitle("")
                           setEditAreaId("")
                           setEditProjectId("")
+                          setEditPriority("Media")
                         }}
                         className="h-8 gap-1 text-muted-foreground"
                       >

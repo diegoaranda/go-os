@@ -1,4 +1,5 @@
 export type Priority = "Alta" | "Media" | "Baja"
+export type TaskPriority = "Baja" | "Media" | "Alta" | "Urgente"
 
 export type ProjectStatus = "Activo" | "En pausa" | "Planificación" | "Completado"
 
@@ -86,7 +87,7 @@ export type Task = {
   id: string
   title: string
   status: TaskStatus
-  priority: Priority
+  priority: TaskPriority
   areaId?: string | null
   projectId?: string | null
   due: string
@@ -325,6 +326,7 @@ export type AccessReference = {
 }
 
 export const priorities: Priority[] = ["Alta", "Media", "Baja"]
+export const taskPriorities: TaskPriority[] = ["Baja", "Media", "Alta", "Urgente"]
 
 export const projectStatuses: ProjectStatus[] = [
   "Activo",

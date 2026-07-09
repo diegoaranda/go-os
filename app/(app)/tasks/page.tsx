@@ -25,9 +25,11 @@ import {
 } from "@/lib/supabase/data"
 import {
   operativeTaskStatuses,
+  taskPriorities,
   type Area,
   type Project,
   type Task,
+  type TaskPriority,
   type TaskStatus,
 } from "@/lib/types"
 
@@ -39,6 +41,7 @@ type TaskFormState = {
   areaId: string
   projectId: string
   status: TaskStatus
+  priority: TaskPriority
 }
 
 function fromTask(task?: Task): TaskFormState {
@@ -47,6 +50,7 @@ function fromTask(task?: Task): TaskFormState {
     areaId: task?.areaId ?? "",
     projectId: task?.projectId ?? "",
     status: task?.status ?? "Pendiente",
+    priority: task?.priority ?? "Media",
   }
 }
 
@@ -69,10 +73,9 @@ function TaskForm({
     ? projects.filter((project) => project.areaId === form.areaId)
     : projects
   const preservedTaskFields = {
-    priority: initial?.priority ?? "Media",
     due: initial?.due ?? "Hoy",
     source: initial?.source ?? "Manual",
-  } satisfies Pick<Task, "priority" | "due" | "source">
+  } satisfies Pick<Task, "due" | "source">
 
   const submit = async () => {
     const title = form.title.trim()
@@ -85,6 +88,7 @@ function TaskForm({
         areaId: form.areaId || null,
         projectId: form.projectId || null,
         status: form.status,
+        priority: form.priority,
         ...preservedTaskFields,
       })
       if (!initial) setForm(fromTask())
@@ -96,7 +100,7 @@ function TaskForm({
   }
 
   return (
-    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-6">
       <div className="flex flex-col gap-1.5 sm:col-span-2 lg:col-span-2">
         <Label htmlFor={initial ? `title-${initial.id}` : "new-task-title"}>Tarea</Label>
         <Input
@@ -184,6 +188,26 @@ function TaskForm({
             {operativeTaskStatuses.map((status) => (
               <SelectItem key={status} value={status}>
                 {status}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+      <div className="flex flex-col gap-1.5">
+        <Label>Prioridad</Label>
+        <Select
+          value={form.priority}
+          onValueChange={(value) =>
+            setForm((current) => ({ ...current, priority: value as TaskPriority }))
+          }
+        >
+          <SelectTrigger className="w-full">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {taskPriorities.map((priority) => (
+              <SelectItem key={priority} value={priority}>
+                {priority}
               </SelectItem>
             ))}
           </SelectContent>

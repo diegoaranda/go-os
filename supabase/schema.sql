@@ -67,7 +67,7 @@ create table if not exists public.tasks (
   status text not null default 'Pendiente'
     check (status in ('Pendiente', 'En curso', 'En revisión', 'Bloqueado', 'Terminado')),
   priority text not null default 'Media'
-    check (priority in ('Alta', 'Media', 'Baja')),
+    check (priority in ('Urgente', 'Alta', 'Media', 'Baja')),
   due text not null default 'Sin fecha',
   source text not null default 'Manual'
     check (source in ('Manual', 'ClickUp', 'Inbox')),

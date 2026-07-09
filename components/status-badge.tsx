@@ -2,6 +2,7 @@ import { Badge } from "@/components/ui/badge"
 import { cn } from "@/lib/utils"
 import type {
   Priority,
+  TaskPriority,
   TaskStatus,
   ContentStatus,
   Project,
@@ -48,8 +49,9 @@ export function ContentStatusBadge({ status }: { status: ContentStatus }) {
   )
 }
 
-export function PriorityBadge({ priority }: { priority: Priority }) {
-  const map: Record<Priority, string> = {
+export function PriorityBadge({ priority }: { priority: Priority | TaskPriority }) {
+  const map: Record<Priority | TaskPriority, string> = {
+    Urgente: "text-red-300 bg-red-500/15",
     Alta: "text-destructive bg-destructive/10",
     Media: "text-amber-400 bg-amber-400/10",
     Baja: "text-muted-foreground bg-muted/60",
